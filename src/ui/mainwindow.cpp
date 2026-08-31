@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "bloggerDialog.h"
+#include "crawlSelectionDialog.h"
 #include "utils/themeManager.h"
 #include "core/database.h"
 #include "core/article.h"
@@ -10,6 +11,11 @@
 #include <QCalendarWidget>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QWheelEvent>
+#include <QTextBlock>
+#include <QTextFragment>
+#include <QTextImageFormat>
+#include <QTextCursor>
 
 #include <QDateTime>
 #include <QFile>
@@ -46,6 +52,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_tempInPath  = baseTemp + "/temp_in.txt";
     m_tempOutPath = baseTemp + "/temp_out.txt";
     m_crawlResultPath = baseTemp + "/crawl_result.json";
+    m_scanResultPath  = baseTemp + "/scan_result.json";
+    m_selectedTargetsPath = baseTemp + "/selected_targets.json";
     m_publishJsonPath = baseTemp + "/publish.json";
 
     setupBloggerList();
@@ -113,13 +121,17 @@ void MainWindow::setupUiDetails()
     }
     if (ui->textEditOriginal) {
         ui->textEditOriginal->document()->setBaseUrl(QUrl::fromLocalFile(projectRoot + "/"));
+        ui->textEditOriginal->installEventFilter(this);
     }
     if (ui->textEditPolished) {
         ui->textEditPolished->document()->setBaseUrl(QUrl::fromLocalFile(projectRoot + "/"));
+        ui->textEditPolished->installEventFilter(this);
     }
 
     // 博主列表右键菜单
     ui->listWidgetBloggers->setContextMenuPolicy(Qt::CustomContextMenu);
+    // 文章列表右键菜单
+    ui->listWidgetArticles->setContextMenuPolicy(Qt::CustomContextMenu);
 }
 
 void MainWindow::setupBloggerList()
@@ -129,7 +141,7 @@ void MainWindow::setupBloggerList()
     ui->listWidgetBloggers->clear();
     if (bloggers.isEmpty()) {
         // 空状态提示
-        auto *hint = new QListWidgetItem("— 暂无博主，点击“＋ 添加”添加微信公众号 —");
+        auto *hint = new QListWidgetItem("— 暂无博主，点击“＋ 添加博主”添加微信公众号 —");
         hint->setFlags(hint->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsEnabled);
         hint->setForeground(QColor("#94A3B8"));
         hint->setTextAlignment(Qt::AlignCenter);
@@ -164,6 +176,25 @@ void MainWindow::setupConnections()
     connect(ui->comboPlatform, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onPlatformFilterChanged);
     connect(ui->listWidgetArticles, &QListWidget::itemClicked, this, &MainWindow::onArticleClicked);
     connect(ui->listWidgetArticles, &QListWidget::itemDoubleClicked, this, &MainWindow::onArticleClicked);
+    
+    // 文章删除与右键
+    if (ui->btnDeleteArticle) {
+        connect(ui->btnDeleteArticle, &QPushButton::clicked, this, &MainWindow::onDeleteArticle);
+    }
+    connect(ui->listWidgetArticles, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos){
+        auto *item = ui->listWidgetArticles->itemAt(pos);
+        if (!item || item->data(Qt::UserRole).toString().isEmpty()) return;
+        QMenu menu(this);
+        auto *actDelete = menu.addAction("🗑 删除此文章 (同步删除本地文件)");
+        auto *actOpenDir = menu.addAction("📂 打开本地文章目录");
+        auto *sel = menu.exec(ui->listWidgetArticles->viewport()->mapToGlobal(pos));
+        if (sel == actDelete) {
+            onDeleteArticle();
+        } else if (sel == actOpenDir) {
+            onBtnOpenArticlesDir();
+        }
+    });
+
     connect(ui->btnCrawl,   &QPushButton::clicked, this, &MainWindow::onBtnCrawlClicked);
     connect(ui->btnPolish,  &QPushButton::clicked, this, &MainWindow::onBtnPolishClicked);
     connect(ui->btnPublish, &QPushButton::clicked, this, &MainWindow::onBtnPublishClicked);
@@ -210,6 +241,65 @@ void MainWindow::setupConnections()
     // Markdown
     if (ui->btnMarkdownOriginal) connect(ui->btnMarkdownOriginal, &QPushButton::toggled, this, &MainWindow::onMarkdownOriginalToggled);
     if (ui->btnMarkdownPolished) connect(ui->btnMarkdownPolished, &QPushButton::toggled, this, &MainWindow::onMarkdownPolishedToggled);
+}
+
+// ================== 图文同步缩放 (Ctrl + 滚轮) ==================
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Wheel) {
+        auto *wheelEvent = static_cast<QWheelEvent *>(event);
+        if (wheelEvent->modifiers() & Qt::ControlModifier) {
+            auto *edit = qobject_cast<QTextEdit *>(watched);
+            if (edit) {
+                int numDegrees = wheelEvent->angleDelta().y() / 8;
+                int numSteps = numDegrees / 15;
+                if (numSteps != 0) {
+                    qreal factor = (numSteps > 0) ? 1.12 : 0.89;
+                    if (numSteps > 0) edit->zoomIn(1);
+                    else edit->zoomOut(1);
+                    scaleEditorImages(edit, factor);
+                    return true;
+                }
+            }
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::scaleEditorImages(QTextEdit *edit, qreal factor)
+{
+    if (!edit || !edit->document()) return;
+    auto *doc = edit->document();
+    for (QTextBlock blk = doc->begin(); blk != doc->end(); blk = blk.next()) {
+        for (QTextBlock::iterator it = blk.begin(); !it.atEnd(); ++it) {
+            QTextFragment frag = it.fragment();
+            if (frag.isValid() && frag.charFormat().isImageFormat()) {
+                QTextImageFormat imgFmt = frag.charFormat().toImageFormat();
+                qreal curW = imgFmt.width();
+                qreal curH = imgFmt.height();
+                if (curW <= 0 || curH <= 0) {
+                    QString name = imgFmt.name();
+                    if (name.startsWith("file:///")) name = QUrl(name).toLocalFile();
+                    QImage img(name);
+                    if (!img.isNull()) {
+                        curW = img.width();
+                        curH = img.height();
+                    } else {
+                        curW = 450; curH = 300;
+                    }
+                }
+                qreal newW = qMax(40.0, curW * factor);
+                qreal newH = qMax(30.0, curH * factor);
+                imgFmt.setWidth(newW);
+                imgFmt.setHeight(newH);
+
+                QTextCursor cur(doc);
+                cur.setPosition(frag.position());
+                cur.setPosition(frag.position() + frag.length(), QTextCursor::KeepAnchor);
+                cur.setCharFormat(imgFmt);
+            }
+        }
+    }
 }
 
 // ================== Markdown ==================
@@ -456,9 +546,8 @@ void MainWindow::onBloggerSelectionChanged()
         });
         ui->listWidgetArticles->clear();
         for (auto &a : arts) {
-            QString imgBadge = a.cover.isEmpty() ? "" : " 🖼️";
             QString timeStr = a.publishTime.isValid() ? a.publishTime.toString("yyyy-MM-dd") : "";
-            auto *it = new QListWidgetItem(QString("[%1]%2 %3").arg(timeStr, imgBadge, a.title));
+            auto *it = new QListWidgetItem(QString("[%1] %2").arg(timeStr, a.title));
             it->setData(Qt::UserRole, a.content);
             it->setData(Qt::UserRole+1, a.id);
             it->setData(Qt::UserRole+2, a.url);
@@ -516,14 +605,11 @@ void MainWindow::onArticleClicked(QListWidgetItem *item)
 void MainWindow::onBtnCrawlClicked()
 {
     auto *bloggerItem = ui->listWidgetBloggers->currentItem();
-    if (!bloggerItem) { QMessageBox::warning(this,"提示","请先选择博主（可点击“＋添加”）"); return; }
+    if (!bloggerItem) { QMessageBox::warning(this,"提示","请先选择博主（可点击“＋ 添加博主”）"); return; }
     QString bloggerId = bloggerItem->data(Qt::UserRole).toString();
     QString platform = bloggerItem->data(Qt::UserRole+1).toString();
-    bool verified = bloggerItem->data(Qt::UserRole+3).toBool();
-    if (!verified) {
-        auto ret = QMessageBox::question(this, "未验证博主", "该博主未通过真实性校验，爬取将为按博主专属题库生成的模拟数据（已按博主领域区分）。\n是否继续？");
-        if (ret != QMessageBox::Yes) return;
-    }
+    if (bloggerId.isEmpty()) { QMessageBox::warning(this,"提示","请选择有效的博主"); return; }
+
     QDate start = ui->dateEditStart->date(), end = ui->dateEditEnd->date();
     if (start > end) { QMessageBox::warning(this,"提示","开始日期不能晚于结束日期"); return; }
 
@@ -531,11 +617,13 @@ void MainWindow::onBtnCrawlClicked()
     if (!QFileInfo::exists(script)) { QMessageBox::critical(this,"错误","找不到 crawler.py: "+script); return; }
     if (m_crawlProcess && m_crawlProcess->state()!=QProcess::NotRunning) { QMessageBox::information(this,"提示","抓取进行中…"); return; }
 
-    log(QString("[爬取] %1 (%2) %3~%4").arg(bloggerId, platform, start.toString(Qt::ISODate), end.toString(Qt::ISODate)));
-    updateStatus("正在抓取…"); setCrawlRunning(true);
+    log(QString("[爬取] 阶段1：扫描候选文章 %1 (%2) %3~%4").arg(bloggerId, platform, start.toString(Qt::ISODate), end.toString(Qt::ISODate)));
+    updateStatus("正在检索候选文章…"); setCrawlRunning(true);
     updateWorkflowStep(1);
-    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 正在采集文章...");
-    QFile::remove(m_crawlResultPath);
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 正在检索候选文章清单...");
+    
+    QFile::remove(m_scanResultPath);
+    m_isScanPhase = true;
 
     if (m_crawlProcess) m_crawlProcess->deleteLater();
     m_crawlProcess = new QProcess(this);
@@ -548,14 +636,14 @@ void MainWindow::onBtnCrawlClicked()
     connect(m_crawlProcess, &QProcess::readyReadStandardOutput, this, [this]{ onCrawlStdout(QString::fromUtf8(m_crawlProcess->readAllStandardOutput())); });
     connect(m_crawlProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError){ log("[爬取] 进程错误: "+m_crawlProcess->errorString()); setCrawlRunning(false); });
 
-    // 传入 --limit 15 解除篇数限制，支持真实爬取
-    QStringList args = {script, "--blogger", bloggerId, "--platform", platform, "--start", start.toString("yyyy-MM-dd"), "--end", end.toString("yyyy-MM-dd"), "--output", m_crawlResultPath, "--limit", "15", "--real"};
+    // 先运行 --scan-only 扫描模式
+    QStringList args = {script, "--blogger", bloggerId, "--platform", platform, "--start", start.toString("yyyy-MM-dd"), "--end", end.toString("yyyy-MM-dd"), "--output", m_scanResultPath, "--limit", "20", "--real", "--scan-only"};
     m_crawlProcess->setWorkingDirectory(QFileInfo(script).absolutePath());
     m_crawlProcess->start(pythonExecutable(), args);
     if (!m_crawlProcess->waitForStarted(5000)) {
         setCrawlRunning(false); QMessageBox::critical(this,"启动失败", m_crawlProcess->errorString()); log("[爬取] 启动失败"); return;
     }
-    log(QString("[爬取] PID=%1 已启动").arg(m_crawlProcess->processId()));
+    log(QString("[爬取] 扫描进程 PID=%1 已启动").arg(m_crawlProcess->processId()));
 }
 
 void MainWindow::onCrawlStdout(const QString &text){
@@ -564,16 +652,124 @@ void MainWindow::onCrawlStdout(const QString &text){
 
 void MainWindow::onCrawlFinished(int exitCode, QProcess::ExitStatus status)
 {
-    Q_UNUSED(status) setCrawlRunning(false);
-    log(QString("[爬取] 结束 code=%1").arg(exitCode));
+    Q_UNUSED(status);
+    setCrawlRunning(false);
+    log(QString("[爬取] 进程结束 code=%1").arg(exitCode));
+
+    if (m_isScanPhase) {
+        m_isScanPhase = false;
+        QFile f(m_scanResultPath);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly)) {
+            log("[爬取] 扫描候选结果文件不存在");
+            QMessageBox::warning(this, "提示", "未能获取候选文章，请检查网络或博主设置");
+            return;
+        }
+        auto doc = QJsonDocument::fromJson(f.readAll());
+        f.close();
+        QJsonArray candidates = doc.object().value("candidates").toArray();
+        if (candidates.isEmpty()) {
+            QMessageBox::information(this, "提示", "未搜索到候选文章");
+            return;
+        }
+
+        // 弹出文章勾选弹窗
+        QDate start = ui->dateEditStart->date(), end = ui->dateEditEnd->date();
+        CrawlSelectionDialog dlg(candidates, start.toString("yyyy-MM-dd"), end.toString("yyyy-MM-dd"), this);
+        if (dlg.exec() != QDialog::Accepted) {
+            log("[爬取] 用户取消了抓取");
+            updateStatus("已取消抓取", 3000);
+            return;
+        }
+
+        QJsonArray selected = dlg.selectedCandidates();
+        if (selected.isEmpty()) {
+            QMessageBox::information(this, "提示", "未勾选任何文章");
+            return;
+        }
+
+        // 写入勾选清单
+        QJsonObject targetObj;
+        targetObj["selected"] = selected;
+        QFile tf(m_selectedTargetsPath);
+        if (tf.open(QIODevice::WriteOnly)) {
+            tf.write(QJsonDocument(targetObj).toJson());
+            tf.close();
+        }
+
+        // 启动第二阶段：下载选中的文章
+        auto *bloggerItem = ui->listWidgetBloggers->currentItem();
+        QString bloggerId = bloggerItem ? bloggerItem->data(Qt::UserRole).toString() : "";
+        QString platform = bloggerItem ? bloggerItem->data(Qt::UserRole+1).toString() : "wechat";
+        QString script = resolvePythonScript("python/crawler/crawler.py");
+
+        log(QString("[爬取] 阶段2：开始下载勾选的 %1 篇目标文章...").arg(selected.size()));
+        updateStatus(QString("正在下载 %1 篇文章...").arg(selected.size()));
+        setCrawlRunning(true);
+        updateWorkflowStep(1);
+        if (ui->labelStatusDot) ui->labelStatusDot->setText(QString("● 正在下载 %1 篇选中文章...").arg(selected.size()));
+
+        if (m_crawlProcess) m_crawlProcess->deleteLater();
+        m_crawlProcess = new QProcess(this);
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert("PYTHONIOENCODING","utf-8");
+        m_crawlProcess->setProcessEnvironment(env);
+        m_crawlProcess->setProcessChannelMode(QProcess::MergedChannels);
+
+        connect(m_crawlProcess, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, &MainWindow::onCrawlFinished);
+        connect(m_crawlProcess, &QProcess::readyReadStandardOutput, this, [this]{ onCrawlStdout(QString::fromUtf8(m_crawlProcess->readAllStandardOutput())); });
+        connect(m_crawlProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError){ log("[爬取] 进程错误: "+m_crawlProcess->errorString()); setCrawlRunning(false); });
+
+        QStringList dlArgs = {script, "--blogger", bloggerId, "--platform", platform, "--output", m_crawlResultPath, "--targets-file", m_selectedTargetsPath, "--real"};
+        m_crawlProcess->setWorkingDirectory(QFileInfo(script).absolutePath());
+        m_crawlProcess->start(pythonExecutable(), dlArgs);
+        if (!m_crawlProcess->waitForStarted(5000)) {
+            setCrawlRunning(false);
+            QMessageBox::critical(this, "启动失败", m_crawlProcess->errorString());
+            return;
+        }
+        return;
+    }
+
     if (exitCode!=0) {
-        QMessageBox::warning(this,"抓取失败", QString("crawler 退出码 %1\n请查看日志，可能为网络或博主不存在").arg(exitCode));
+        QMessageBox::warning(this,"抓取失败", QString("crawler 退出码 %1\n请查看控制台日志").arg(exitCode));
         updateStatus("抓取失败",3000); return;
     }
     refreshArticleListFromJson(m_crawlResultPath);
     updateWorkflowStep(2);
     updateArticleStats();
     if (ui->labelStatusDot) ui->labelStatusDot->setText("● 采集完成，进入润色");
+}
+
+void MainWindow::onDeleteArticle()
+{
+    auto *item = ui->listWidgetArticles->currentItem();
+    if (!item) {
+        QMessageBox::information(this, "提示", "请先在文章列表中选择要删除的文章");
+        return;
+    }
+    QString articleId = item->data(Qt::UserRole + 1).toString();
+    QString title = item->text();
+    if (articleId.isEmpty()) return;
+
+    auto ret = QMessageBox::question(this, "确认删除文章",
+        QString("确定要删除选中的文章吗？\n\n%1\n\n该操作将同时清除 SQLite 数据库记录以及本地下载的图文文件，且不可恢复。").arg(title),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+    if (ret != QMessageBox::Yes) return;
+
+    bool ok = Database::instance().deleteArticle(articleId, true);
+    if (ok) {
+        log("[文章管理] 已从数据库与本地磁盘同步删除: " + title);
+        delete ui->listWidgetArticles->takeItem(ui->listWidgetArticles->row(item));
+        updateArticleStats();
+        ui->textEditOriginal->clear();
+        ui->textEditPolished->clear();
+        m_originalPlain.clear();
+        m_polishedPlain.clear();
+        updateStatus("文章已删除（数据库与本地文件已清理）", 3000);
+    } else {
+        QMessageBox::warning(this, "删除失败", "数据库操作未成功");
+    }
 }
 
 void MainWindow::refreshArticleListFromJson(const QString &jsonPath)
@@ -623,9 +819,8 @@ void MainWindow::refreshArticleListFromJson(const QString &jsonPath)
     Database::instance().saveArticles(articles);
     ui->listWidgetArticles->clear();
     for (auto &a: articles){
-        QString imgBadge = a.cover.isEmpty() ? "" : " 🖼️";
         QString timeStr = a.publishTime.isValid() ? a.publishTime.toString("yyyy-MM-dd") : "";
-        auto *it=new QListWidgetItem(QString("[%1]%2 %3").arg(timeStr, imgBadge, a.title));
+        auto *it=new QListWidgetItem(QString("[%1] %2").arg(timeStr, a.title));
         it->setData(Qt::UserRole, a.content);
         it->setData(Qt::UserRole+1, a.id);
         it->setData(Qt::UserRole+2, a.url);

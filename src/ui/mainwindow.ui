@@ -190,28 +190,26 @@
            </item>
            <item>
             <layout class="QHBoxLayout" name="hlBloggerActions">
-             <property name="spacing"><number>6</number></property>
+             <property name="spacing"><number>8</number></property>
              <item>
               <widget class="QPushButton" name="btnAddBlogger">
-               <property name="text"><string>＋ 添加</string></property>
-               <property name="toolTip"><string>添加博主（将校验真实性）</string></property>
-               <property name="minimumHeight"><number>28</number></property>
+               <property name="text"><string>＋ 添加博主</string></property>
+               <property name="toolTip"><string>添加博主</string></property>
+               <property name="minimumHeight"><number>30</number></property>
               </widget>
              </item>
              <item>
               <widget class="QPushButton" name="btnEditBlogger">
                <property name="text"><string>✎ 编辑</string></property>
                <property name="toolTip"><string>编辑选中博主</string></property>
-               <property name="minimumHeight"><number>28</number></property>
-               <property name="maximumWidth"><number>60</number></property>
+               <property name="minimumHeight"><number>30</number></property>
               </widget>
              </item>
              <item>
               <widget class="QPushButton" name="btnDeleteBlogger">
                <property name="text"><string>🗑 删除</string></property>
                <property name="toolTip"><string>删除选中博主</string></property>
-               <property name="minimumHeight"><number>28</number></property>
-               <property name="maximumWidth"><number>60</number></property>
+               <property name="minimumHeight"><number>30</number></property>
               </widget>
              </item>
             </layout>
@@ -258,12 +256,24 @@
             <property name="text"><string>文章列表 · 点击加载到编辑器</string></property>
            </widget>
           </item>
-          <item>
-           <widget class="QListWidget" name="listWidgetArticles">
-            <property name="toolTip"><string>单击加载原文，双击同理</string></property>
-            <property name="alternatingRowColors"><bool>false</bool></property>
-           </widget>
-          </item>
+           <item>
+            <widget class="QListWidget" name="listWidgetArticles">
+             <property name="toolTip"><string>单击加载原文，右键管理/删除文章</string></property>
+             <property name="alternatingRowColors"><bool>false</bool></property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="hlArticleActions">
+             <property name="spacing"><number>8</number></property>
+             <item>
+              <widget class="QPushButton" name="btnDeleteArticle">
+               <property name="text"><string>🗑 删除选中文章</string></property>
+               <property name="toolTip"><string>从数据库与本地磁盘同步删除选中文章</string></property>
+               <property name="minimumHeight"><number>28</number></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
          </layout>
         </widget>
        </item>

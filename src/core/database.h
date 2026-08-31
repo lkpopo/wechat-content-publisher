@@ -22,6 +22,7 @@ public:
     QList<Article> loadArticles(const QString &bloggerId = {}, int limit = 100);
     Article loadArticle(const QString &id);
     bool clearArticles(const QString &bloggerId = {});
+    bool deleteArticle(const QString &id, bool deleteFiles = true);
 
     // 发布记录
     struct PublishRecord {

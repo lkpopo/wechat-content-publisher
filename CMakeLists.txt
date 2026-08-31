@@ -29,6 +29,8 @@ set(SOURCES
     src/ui/bloggerDialog.cpp
     src/ui/bloggerDialog.h
     src/ui/bloggerDialog.ui
+    src/ui/crawlSelectionDialog.cpp
+    src/ui/crawlSelectionDialog.h
     src/core/configmanager.cpp
     src/core/configmanager.h
     src/core/database.cpp

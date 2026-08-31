@@ -181,6 +181,46 @@ bool Database::clearArticles(const QString &bloggerId)
     return q.exec();
 }
 
+bool Database::deleteArticle(const QString &id, bool deleteFiles)
+{
+    if (!isOpen()) open();
+    Article a = loadArticle(id);
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM articles WHERE id = ?");
+    q.addBindValue(id);
+    bool ok = q.exec();
+
+    if (ok && deleteFiles && !a.id.isEmpty()) {
+        QStringList candidateRoots = {
+            QCoreApplication::applicationDirPath() + "/../../data/articles",
+            QCoreApplication::applicationDirPath() + "/data/articles",
+            QDir::currentPath() + "/data/articles"
+        };
+        for (const QString &root : candidateRoots) {
+            QDir rootDir(root);
+            if (rootDir.exists()) {
+                QString safeBlogger = a.bloggerId;
+                safeBlogger.replace(QRegularExpression("[^\\w\\-]"), "_");
+                QDir bDir(rootDir.filePath(safeBlogger));
+                if (bDir.exists()) {
+                    QStringList subdirs = bDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+                    for (const QString &sub : subdirs) {
+                        QFile metaF(bDir.filePath(sub + "/meta.json"));
+                        if (metaF.open(QIODevice::ReadOnly)) {
+                            QByteArray metaBytes = metaF.readAll();
+                            metaF.close();
+                            if (metaBytes.contains(a.title.toUtf8()) || (!a.url.isEmpty() && metaBytes.contains(a.url.toUtf8()))) {
+                                QDir(bDir.filePath(sub)).removeRecursively();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return ok;
+}
+
 bool Database::savePublishRecord(const PublishRecord &r)
 {
     if (!isOpen()) open();

@@ -45,6 +45,10 @@ private slots:
     void onCrawlFinished(int exitCode, QProcess::ExitStatus status);
     void onCrawlStdout(const QString &text);
     void onPublishFinished(int exitCode, QProcess::ExitStatus status);
+    void onDeleteArticle();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void setupConnections();
@@ -63,6 +67,7 @@ private:
     void log(const QString &msg);
     void updateStatus(const QString &msg, int timeout = 0);
     void refreshArticleListFromJson(const QString &jsonPath);
+    void scaleEditorImages(QTextEdit *edit, qreal factor);
 
     // Markdown helpers
     void applyMarkdown(QTextEdit *edit, const QString &markdown, bool enable);
@@ -71,6 +76,8 @@ private:
     bool m_originalIsMarkdown = false;
     bool m_polishedIsMarkdown = false;
 
+    bool m_isScanPhase = false;
+
     Ui::MainWindow *ui = nullptr;
     QProcess *m_polishProcess = nullptr;
     QProcess *m_crawlProcess  = nullptr;
@@ -78,5 +85,7 @@ private:
     QString m_tempInPath;
     QString m_tempOutPath;
     QString m_crawlResultPath;
+    QString m_scanResultPath;
+    QString m_selectedTargetsPath;
     QString m_publishJsonPath;
 };
