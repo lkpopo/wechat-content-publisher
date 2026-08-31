@@ -119,15 +119,43 @@
             <property name="text"><string>博主列表</string></property>
            </widget>
           </item>
-          <item>
-           <widget class="QListWidget" name="listWidgetBloggers">
-            <property name="minimumHeight"><number>150</number></property>
-            <property name="maximumHeight"><number>170</number></property>
-            <property name="toolTip"><string>选择要抓取的博主</string></property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="labelDate">
+           <item>
+            <widget class="QListWidget" name="listWidgetBloggers">
+             <property name="minimumHeight"><number>150</number></property>
+             <property name="maximumHeight"><number>170</number></property>
+             <property name="toolTip"><string>选择要抓取的博主（右键编辑）</string></property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="hlBloggerActions">
+             <property name="spacing"><number>6</number></property>
+             <item>
+              <widget class="QPushButton" name="btnAddBlogger">
+               <property name="text"><string>＋ 添加</string></property>
+               <property name="toolTip"><string>添加博主（将校验真实性）</string></property>
+               <property name="minimumHeight"><number>28</number></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnEditBlogger">
+               <property name="text"><string>✎ 编辑</string></property>
+               <property name="toolTip"><string>编辑选中博主</string></property>
+               <property name="minimumHeight"><number>28</number></property>
+               <property name="maximumWidth"><number>60</number></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnDeleteBlogger">
+               <property name="text"><string>🗑 删除</string></property>
+               <property name="toolTip"><string>删除选中博主</string></property>
+               <property name="minimumHeight"><number>28</number></property>
+               <property name="maximumWidth"><number>60</number></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QLabel" name="labelDate">
             <property name="text"><string>时间段</string></property>
            </widget>
           </item>
@@ -198,124 +226,182 @@
             </item>
            </layout>
           </item>
-          <!-- Editor Splitter -->
-          <item>
-           <widget class="QSplitter" name="splitterEditor">
-            <property name="orientation"><enum>Qt::Horizontal</enum></property>
-            <property name="handleWidth"><number>8</number></property>
-            <property name="childrenCollapsible"><bool>false</bool></property>
-            <property name="opaqueResize"><bool>false</bool></property>
-            <widget class="QWidget" name="originalContainer">
-             <layout class="QVBoxLayout" name="vlOriginal">
-              <property name="spacing"><number>0</number></property>
-              <property name="leftMargin"><number>0</number></property>
-              <property name="topMargin"><number>0</number></property>
-              <property name="rightMargin"><number>0</number></property>
-              <property name="bottomMargin"><number>0</number></property>
-              <item>
-               <widget class="QLabel" name="labelOriginal">
-                <property name="text"><string>原  文</string></property>
-                <property name="alignment"><set>Qt::AlignCenter</set></property>
-                <property name="minimumHeight"><number>32</number></property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QTextEdit" name="textEditOriginal">
-                <property name="placeholderText"><string>在这里粘贴或从左侧加载原文…</string></property>
-                <property name="acceptRichText"><bool>false</bool></property>
-               </widget>
-              </item>
-             </layout>
+           <!-- 垂直可拖拽：编辑区 + 日志 -->
+           <item>
+            <widget class="QSplitter" name="splitterVertical">
+             <property name="orientation"><enum>Qt::Vertical</enum></property>
+             <property name="handleWidth"><number>6</number></property>
+             <property name="childrenCollapsible"><bool>false</bool></property>
+             <property name="opaqueResize"><bool>false</bool></property>
+             <!-- 上：编辑区 -->
+             <widget class="QWidget" name="editorPage">
+              <layout class="QVBoxLayout" name="vlEditorPage">
+               <property name="spacing"><number>8</number></property>
+               <property name="leftMargin"><number>0</number></property>
+               <property name="topMargin"><number>0</number></property>
+               <property name="rightMargin"><number>0</number></property>
+               <property name="bottomMargin"><number>0</number></property>
+               <item>
+                <widget class="QSplitter" name="splitterEditor">
+                 <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                 <property name="handleWidth"><number>8</number></property>
+                 <property name="childrenCollapsible"><bool>false</bool></property>
+                 <property name="opaqueResize"><bool>false</bool></property>
+                 <widget class="QWidget" name="originalContainer">
+                  <layout class="QVBoxLayout" name="vlOriginal">
+                   <property name="spacing"><number>0</number></property>
+                   <property name="leftMargin"><number>0</number></property>
+                   <property name="topMargin"><number>0</number></property>
+                   <property name="rightMargin"><number>0</number></property>
+                   <property name="bottomMargin"><number>0</number></property>
+                   <item>
+                    <layout class="QHBoxLayout" name="hlOriginalHeader">
+                     <property name="spacing"><number>4</number></property>
+                     <property name="leftMargin"><number>0</number></property>
+                     <property name="rightMargin"><number>4</number></property>
+                     <item>
+                      <widget class="QLabel" name="labelOriginal">
+                       <property name="text"><string>原  文</string></property>
+                       <property name="alignment"><set>Qt::AlignCenter</set></property>
+                       <property name="minimumHeight"><number>28</number></property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QPushButton" name="btnMarkdownOriginal">
+                       <property name="text"><string>MD</string></property>
+                       <property name="checkable"><bool>true</bool></property>
+                       <property name="toolTip"><string>Markdown 预览/编辑切换</string></property>
+                       <property name="maximumWidth"><number>44</number></property>
+                       <property name="minimumHeight"><number>22</number></property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                   <item>
+                    <widget class="QTextEdit" name="textEditOriginal">
+                     <property name="placeholderText"><string>在这里粘贴或从左侧加载原文… (支持 Markdown)</string></property>
+                     <property name="acceptRichText"><bool>false</bool></property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                 <widget class="QWidget" name="polishedContainer">
+                  <layout class="QVBoxLayout" name="vlPolished">
+                   <property name="spacing"><number>0</number></property>
+                   <property name="leftMargin"><number>0</number></property>
+                   <property name="topMargin"><number>0</number></property>
+                   <property name="rightMargin"><number>0</number></property>
+                   <property name="bottomMargin"><number>0</number></property>
+                   <item>
+                    <layout class="QHBoxLayout" name="hlPolishedHeader">
+                     <property name="spacing"><number>4</number></property>
+                     <property name="leftMargin"><number>0</number></property>
+                     <property name="rightMargin"><number>4</number></property>
+                     <item>
+                      <widget class="QLabel" name="labelPolished">
+                       <property name="text"><string>润色后 · AI</string></property>
+                       <property name="alignment"><set>Qt::AlignCenter</set></property>
+                       <property name="minimumHeight"><number>28</number></property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QPushButton" name="btnMarkdownPolished">
+                       <property name="text"><string>MD 预览</string></property>
+                       <property name="checkable"><bool>true</bool></property>
+                       <property name="toolTip"><string>Markdown 渲染开关</string></property>
+                       <property name="maximumWidth"><number>68</number></property>
+                       <property name="minimumHeight"><number>22</number></property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                   <item>
+                    <widget class="QTextEdit" name="textEditPolished">
+                     <property name="placeholderText"><string>AI 润色结果将显示在此处，可二次编辑… (支持 Markdown)</string></property>
+                     <property name="acceptRichText"><bool>false</bool></property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="hlActions">
+                 <property name="spacing"><number>8</number></property>
+                 <item>
+                  <widget class="QPushButton" name="btnClear">
+                   <property name="text"><string>清空</string></property>
+                   <property name="toolTip"><string>清空双栏</string></property>
+                   <property name="maximumWidth"><number>80</number></property>
+                   <property name="minimumHeight"><number>34</number></property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btnSwap">
+                   <property name="text"><string>⇄ 互换</string></property>
+                   <property name="toolTip"><string>互换左右内容</string></property>
+                   <property name="maximumWidth"><number>80</number></property>
+                   <property name="minimumHeight"><number>34</number></property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="spacerActions">
+                   <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                   <property name="sizeHint" stdset="0"><size><width>0</width><height>20</height></size></property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btnPolish">
+                   <property name="text"><string>✦  AI 润色</string></property>
+                   <property name="toolTip"><string>调用 Python 将左侧润色到右侧</string></property>
+                   <property name="minimumWidth"><number>148</number></property>
+                   <property name="minimumHeight"><number>38</number></property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btnPublish">
+                   <property name="text"><string>发  布</string></property>
+                   <property name="toolTip"><string>发布到今日头条</string></property>
+                   <property name="minimumWidth"><number>148</number></property>
+                   <property name="minimumHeight"><number>38</number></property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="QProgressBar" name="progressBar">
+                 <property name="visible"><bool>false</bool></property>
+                 <property name="minimum"><number>0</number></property>
+                 <property name="maximum"><number>0</number></property>
+                 <property name="textVisible"><bool>false</bool></property>
+                 <property name="maximumHeight"><number>4</number></property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <!-- 下：日志 可拖拽 -->
+             <widget class="QWidget" name="logPage">
+              <layout class="QVBoxLayout" name="vlLogPage">
+               <property name="spacing"><number>4</number></property>
+               <property name="leftMargin"><number>0</number></property>
+               <property name="topMargin"><number>0</number></property>
+               <property name="rightMargin"><number>0</number></property>
+               <property name="bottomMargin"><number>0</number></property>
+               <item>
+                <widget class="QLabel" name="labelLog">
+                 <property name="text"><string>运行日志</string></property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QTextEdit" name="textEditLog">
+                 <property name="readOnly"><bool>true</bool></property>
+                 <property name="placeholderText"><string>日志…（可拖拽上方分隔条调整大小）</string></property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
             </widget>
-            <widget class="QWidget" name="polishedContainer">
-             <layout class="QVBoxLayout" name="vlPolished">
-              <property name="spacing"><number>0</number></property>
-              <property name="leftMargin"><number>0</number></property>
-              <property name="topMargin"><number>0</number></property>
-              <property name="rightMargin"><number>0</number></property>
-              <property name="bottomMargin"><number>0</number></property>
-              <item>
-               <widget class="QLabel" name="labelPolished">
-                <property name="text"><string>润色后 · AI</string></property>
-                <property name="alignment"><set>Qt::AlignCenter</set></property>
-                <property name="minimumHeight"><number>32</number></property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QTextEdit" name="textEditPolished">
-                <property name="placeholderText"><string>AI 润色结果将显示在此处，可二次编辑…</string></property>
-                <property name="acceptRichText"><bool>false</bool></property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </widget>
-          </item>
-          <!-- Actions -->
-          <item>
-           <layout class="QHBoxLayout" name="hlActions">
-            <property name="spacing"><number>8</number></property>
-            <item>
-             <widget class="QPushButton" name="btnClear">
-              <property name="text"><string>清空</string></property>
-              <property name="toolTip"><string>清空双栏</string></property>
-              <property name="maximumWidth"><number>80</number></property>
-              <property name="minimumHeight"><number>34</number></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="btnSwap">
-              <property name="text"><string>⇄ 互换</string></property>
-              <property name="toolTip"><string>互换左右内容</string></property>
-              <property name="maximumWidth"><number>80</number></property>
-              <property name="minimumHeight"><number>34</number></property>
-             </widget>
-            </item>
-            <item>
-             <spacer name="spacerActions">
-              <property name="orientation"><enum>Qt::Horizontal</enum></property>
-              <property name="sizeHint" stdset="0"><size><width>0</width><height>20</height></size></property>
-             </spacer>
-            </item>
-            <item>
-             <widget class="QPushButton" name="btnPolish">
-              <property name="text"><string>✦  AI 润色</string></property>
-              <property name="toolTip"><string>调用 Python 将左侧润色到右侧</string></property>
-              <property name="minimumWidth"><number>148</number></property>
-              <property name="minimumHeight"><number>38</number></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="btnPublish">
-              <property name="text"><string>发  布</string></property>
-              <property name="toolTip"><string>发布到今日头条</string></property>
-              <property name="minimumWidth"><number>148</number></property>
-              <property name="minimumHeight"><number>38</number></property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <widget class="QProgressBar" name="progressBar">
-            <property name="visible"><bool>false</bool></property>
-            <property name="minimum"><number>0</number></property>
-            <property name="maximum"><number>0</number></property>
-            <property name="textVisible"><bool>false</bool></property>
-            <property name="maximumHeight"><number>4</number></property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="labelLog">
-            <property name="text"><string>运行日志</string></property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QTextEdit" name="textEditLog">
-            <property name="maximumHeight"><number>120</number></property>
-            <property name="readOnly"><bool>true</bool></property>
-            <property name="placeholderText"><string>日志…</string></property>
-           </widget>
-          </item>
+           </item>
          </layout>
         </widget>
        </item>
@@ -323,11 +409,6 @@
      </widget>
     </item>
    </layout>
-  </widget>
-  <widget class="QMenuBar" name="menubar">
-   <widget class="QMenu" name="menuFile"><property name="title"><string>文件</string></property></widget>
-   <widget class="QMenu" name="menuHelp"><property name="title"><string>帮助</string></property></widget>
-   <addaction name="menuFile"/><addaction name="menuHelp"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>

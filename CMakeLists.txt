@@ -26,11 +26,15 @@ set(SOURCES
     src/ui/mainwindow.cpp
     src/ui/mainwindow.h
     src/ui/mainwindow.ui
+    src/ui/bloggerDialog.cpp
+    src/ui/bloggerDialog.h
+    src/ui/bloggerDialog.ui
     src/core/configmanager.cpp
     src/core/configmanager.h
     src/core/database.cpp
     src/core/database.h
     src/core/article.h
+    src/core/blogger.h
     src/utils/processrunner.cpp
     src/utils/processrunner.h
     src/utils/themeManager.cpp

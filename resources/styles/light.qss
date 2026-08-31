@@ -1,6 +1,7 @@
 /* IwanMoney Modern Light Theme - Fluent2 / Tailwind Inspired 2026 */
 * {
-    font-family: "Inter", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-family: "Microsoft YaHei UI", "HarmonyOS Sans SC", "Sarasa Gothic SC", "PingFang SC", "Segoe UI", sans-serif;
+    text-rendering: optimizeLegibility;
 }
 
 /* ===== Main Window ===== */
@@ -450,3 +451,79 @@ QLabel#labelDateSep {
     color: #94A3B8;
     font-weight: 600;
 }
+
+/* ===== Blogger Action Buttons ===== */
+#btnAddBlogger {
+    background: #6366F1;
+    color: #FFFFFF;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+#btnAddBlogger:hover { background: #4F46E5; }
+#btnEditBlogger, #btnDeleteBlogger {
+    background: #FFFFFF;
+    border: 1.5px solid #E2E8F0;
+    color: #475569;
+    border-radius: 8px;
+    font-size: 11px;
+}
+#btnEditBlogger:hover, #btnDeleteBlogger:hover { background: #F8FAFC; border-color: #CBD5E1; color: #1E293B; }
+#btnDeleteBlogger:hover { color: #DC2626; border-color: #FECACA; background: #FEF2F2; }
+
+/* ===== Markdown Toggle ===== */
+#btnMarkdownOriginal, #btnMarkdownPolished {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    color: #64748B;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+}
+#btnMarkdownOriginal:checked, #btnMarkdownPolished:checked {
+    background: #EEF2FF;
+    border-color: #C7D2FE;
+    color: #4338CA;
+}
+
+/* ===== Calendar Widget ===== */
+QCalendarWidget QWidget {
+    background: #FFFFFF;
+    color: #1E293B;
+}
+QCalendarWidget QToolButton {
+    background: #FFFFFF;
+    color: #1E293B;
+    border: none;
+    border-radius: 6px;
+    padding: 4px;
+    font-weight: 600;
+}
+QCalendarWidget QToolButton:hover { background: #F1F5F9; }
+QCalendarWidget QMenu { background: #FFFFFF; }
+QCalendarWidget QSpinBox {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    padding: 2px;
+    selection-background-color: #6366F1;
+}
+QCalendarWidget QAbstractItemView:enabled {
+    background: #FFFFFF;
+    color: #334155;
+    selection-background-color: #6366F1;
+    selection-color: #FFFFFF;
+    border: none;
+    outline: none;
+}
+QCalendarWidget QAbstractItemView:disabled { color: #CBD5E1; }
+
+/* ===== Vertical Splitter ===== */
+QSplitter#splitterVertical::handle {
+    background: #F1F5F9;
+    height: 6px;
+    border-top: 1px solid #E2E8F0;
+    border-bottom: 1px solid #E2E8F0;
+}
+QSplitter#splitterVertical::handle:hover { background: #E0E7FF; }

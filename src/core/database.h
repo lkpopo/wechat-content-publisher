@@ -2,9 +2,10 @@
 #include <QObject>
 #include <QSqlDatabase>
 #include "article.h"
+#include "blogger.h"
 
 // SQLite 持久化 - 存储文章、发布记录、博主配置
-// Step2：文章表 + 发布历史；后续扩展用户/配置表
+// Step2：文章表 + 发布历史 + 博主表
 class Database : public QObject
 {
     Q_OBJECT
@@ -34,6 +35,12 @@ public:
     };
     bool savePublishRecord(const PublishRecord &r);
     QList<PublishRecord> loadPublishRecords(int limit = 50);
+
+    // 博主
+    bool saveBlogger(const Blogger &b);
+    bool deleteBlogger(const QString &id);
+    QList<Blogger> loadBloggers();
+    Blogger loadBlogger(const QString &id);
 
 private:
     bool createTables();

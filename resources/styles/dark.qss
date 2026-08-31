@@ -1,5 +1,5 @@
 /* IwanMoney Dark Theme - Slate 900 */
-* { font-family: "Inter", "Microsoft YaHei UI", "Segoe UI", sans-serif; }
+* { font-family: "Microsoft YaHei UI", "HarmonyOS Sans SC", "Sarasa Gothic SC", "PingFang SC", "Segoe UI", sans-serif; text-rendering: optimizeLegibility; }
 QMainWindow { background: #0F172A; }
 #centralwidget { background: #0F172A; }
 #headerWidget { background: #1E293B; border: 1px solid #334155; border-radius: 12px; }
@@ -43,3 +43,10 @@ QScrollBar::handle:vertical:hover { background: #475569; }
 QStatusBar { background: #1E293B; border-top: 1px solid #334155; color: #94A3B8; }
 QMenuBar { background: #1E293B; border-bottom: 1px solid #334155; color: #CBD5E1; }
 QMenu { background: #1E293B; border: 1px solid #334155; color: #E2E8F0; }
+#btnAddBlogger { background: #6366F1; color: #FFFFFF; }
+#btnEditBlogger, #btnDeleteBlogger { background: #1E293B; border: 1.5px solid #334155; color: #CBD5E1; }
+#btnDeleteBlogger:hover { color: #F87171; border-color: #7F1D1D; background: #450A0A; }
+#btnMarkdownOriginal, #btnMarkdownPolished { background: #0F172A; border: 1px solid #334155; color: #94A3B8; }
+#btnMarkdownOriginal:checked, #btnMarkdownPolished:checked { background: #312E81; border-color: #4338CA; color: #C7D2FE; }
+QCalendarWidget QWidget { background: #1E293B; color: #E2E8F0; }
+QCalendarWidget QAbstractItemView:enabled { background: #1E293B; color: #E2E8F0; selection-background-color: #6366F1; }

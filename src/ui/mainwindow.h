@@ -2,6 +2,7 @@
 #include <QMainWindow>
 #include <QProcess>
 #include <QListWidgetItem>
+class QTextEdit;
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -23,21 +24,29 @@ private slots:
     void onArticleClicked(QListWidgetItem *item);
     void onThemeToggled();
 
-    // QProcess 回调 - 润色
+    // 博主管理
+    void onAddBlogger();
+    void onEditBlogger();
+    void onDeleteBlogger();
+    void onBloggerContextMenu(const QPoint &pos);
+
+    // Markdown
+    void onMarkdownOriginalToggled(bool checked);
+    void onMarkdownPolishedToggled(bool checked);
+
+    // QProcess 回调
     void onPolishFinished(int exitCode, QProcess::ExitStatus status);
     void onPolishError(const QString &msg);
     void onPolishStdout(const QString &text);
     void onPolishStderr(const QString &text);
-    // QProcess 回调 - 爬取
     void onCrawlFinished(int exitCode, QProcess::ExitStatus status);
     void onCrawlStdout(const QString &text);
-    // QProcess 回调 - 发布
     void onPublishFinished(int exitCode, QProcess::ExitStatus status);
 
 private:
     void setupConnections();
     void setupBloggerList();
-    void setupUiDetails(); // 现代化细节：阴影、拉伸等
+    void setupUiDetails();
 
     void setPolishRunning(bool running);
     void setCrawlRunning(bool running);
@@ -48,7 +57,13 @@ private:
     void log(const QString &msg);
     void updateStatus(const QString &msg, int timeout = 0);
     void refreshArticleListFromJson(const QString &jsonPath);
-    void refreshArticleListFromDb(const QString &bloggerId);
+
+    // Markdown helpers
+    void applyMarkdown(QTextEdit *edit, const QString &markdown, bool enable);
+    QString m_originalPlain;
+    QString m_polishedPlain;
+    bool m_originalIsMarkdown = false;
+    bool m_polishedIsMarkdown = false;
 
     Ui::MainWindow *ui = nullptr;
     QProcess *m_polishProcess = nullptr;

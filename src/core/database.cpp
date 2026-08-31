@@ -75,6 +75,23 @@ bool Database::createTables()
         )
     )");
     if (!ok) qWarning() << "create publish_records failed" << q.lastError();
+
+    // 博主表 - Step3 新增
+    ok = q.exec(R"(
+        CREATE TABLE IF NOT EXISTS bloggers(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            url TEXT,
+            verified INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    )");
+    if (!ok) qWarning() << "create bloggers failed" << q.lastError();
+
+    // 兼容旧版：若表已存在但缺少 verified 列则补
+    q.exec("ALTER TABLE bloggers ADD COLUMN verified INTEGER DEFAULT 0");
+
     return true;
 }
 
@@ -199,4 +216,64 @@ QList<Database::PublishRecord> Database::loadPublishRecords(int limit)
         list.append(r);
     }
     return list;
+}
+
+bool Database::saveBlogger(const Blogger &b)
+{
+    if (!isOpen()) open();
+    QSqlQuery q(m_db);
+    q.prepare("INSERT OR REPLACE INTO bloggers(id,name,platform,url,verified) VALUES(?,?,?,?,?)");
+    q.addBindValue(b.id);
+    q.addBindValue(b.name);
+    q.addBindValue(b.platform);
+    q.addBindValue(b.url);
+    q.addBindValue(b.verified?1:0);
+    if (!q.exec()) { qWarning() << "saveBlogger failed" << q.lastError() << b.id; return false; }
+    return true;
+}
+
+bool Database::deleteBlogger(const QString &id)
+{
+    if (!isOpen()) open();
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM bloggers WHERE id=?");
+    q.addBindValue(id);
+    return q.exec();
+}
+
+QList<Blogger> Database::loadBloggers()
+{
+    QList<Blogger> list;
+    if (!isOpen()) open();
+    QSqlQuery q(m_db);
+    q.exec("SELECT id,name,platform,url,verified FROM bloggers ORDER BY created_at ASC");
+    while (q.next()) {
+        Blogger b;
+        b.id = q.value(0).toString();
+        b.name = q.value(1).toString();
+        b.platform = q.value(2).toString();
+        b.url = q.value(3).toString();
+        b.verified = q.value(4).toInt()!=0;
+        list.append(b);
+    }
+    return list;
+}
+
+Blogger Database::loadBlogger(const QString &id)
+{
+    if (!isOpen()) open();
+    QSqlQuery q(m_db);
+    q.prepare("SELECT id,name,platform,url,verified FROM bloggers WHERE id=?");
+    q.addBindValue(id);
+    q.exec();
+    if (q.next()) {
+        Blogger b;
+        b.id = q.value(0).toString();
+        b.name = q.value(1).toString();
+        b.platform = q.value(2).toString();
+        b.url = q.value(3).toString();
+        b.verified = q.value(4).toInt()!=0;
+        return b;
+    }
+    return {};
 }
