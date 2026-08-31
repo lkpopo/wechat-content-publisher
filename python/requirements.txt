@@ -1,0 +1,8 @@
+# IwanMoney Python 依赖
+# Step1 仅需标准库即可运行 Mock
+# Step2 启用 Playwright 后取消注释
+
+# playwright>=1.40.0
+# beautifulsoup4>=4.12.0
+# lxml>=4.9.0
+# requests>=2.31.0

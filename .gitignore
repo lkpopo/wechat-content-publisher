@@ -1,0 +1,61 @@
+# CMake build
+build/
+build-*/
+out/
+cmake-build-*/
+
+# Qt generated
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qmlc
+*.jsc
+Makefile*
+*build-log
+object_script.*.Release
+object_script.*.Debug
+
+# Compiled
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.app
+*.dSYM
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+playwright/.cache
+*.log
+
+# Data / temp (保留结构，忽略内容)
+data/temp/*
+!data/temp/.gitkeep
+config/app_config.json
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
