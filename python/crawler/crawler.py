@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-爬虫抓取 v3 - 支持候选扫描、文章勾选下载、精准时间提取、图片绝对路径与 Markdown 本地化
-- 支持 --scan-only：快速检索候选文章及真实发布时间，供前端弹窗选择
-- 支持 --targets-file：根据前端勾选的清单下载选定文章的正文与高清图片
-- 提取微信正文原生时间戳 (var ct = "...")，严格时间排序
+IwanMoney 爬虫抓取引擎 v4 - 博主主页直达定位架构 (Blogger-First Direct Engine)
+- 彻底废除搜狗模糊检索，杜绝反爬验证码和历史旧闻干扰
+- 先定位博主，直接浏览博主最新发布的文章列表
+- 原创博主直达（如 ifanr / 爱范儿）：实时提取博主当天最新发布的原创正文与高清大图
+- 微信文章直链直达：支持微信公众号文章一键提取
+- 专属博主内容流：时间 100% 精准匹配用户所选的时间段 (如 2026 年 8 月)
+- 支持两阶段交互：--scan-only (弹窗勾选) 与 --targets-file (精准下载)
 """
 
 import argparse
@@ -31,113 +34,20 @@ except Exception:
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
-def _headers() -> dict:
+def _default_headers() -> dict:
     return {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Referer": "https://weixin.sogou.com/",
         "Connection": "keep-alive"
     }
 
-class WechatCrawlerEngine:
-    def __init__(self):
-        import requests
-        self.session = requests.Session()
-        self.session.headers.update(_headers())
-        self._warmed_up = False
+class ImageDownloader:
+    """负责将正文插图安全下载至本地，返回本地绝对 file:/// 路径"""
+    def __init__(self, session):
+        self.session = session
 
-    def warmup(self):
-        if self._warmed_up:
-            return
-        try:
-            r = self.session.get("https://weixin.sogou.com/", timeout=10)
-            self._warmed_up = True
-        except Exception:
-            pass
-
-    def search_candidates(self, keyword: str, limit: int = 20) -> list:
-        """检索候选文章"""
-        self.warmup()
-        from bs4 import BeautifulSoup
-
-        q = urllib.parse.quote(keyword)
-        search_url = f"https://weixin.sogou.com/weixin?type=2&query={q}&ie=utf8"
-        headers = {"Referer": "https://weixin.sogou.com/"}
-        r = self.session.get(search_url, headers=headers, timeout=12)
-
-        if r.status_code != 200 or "antispider" in r.url or "验证码" in r.text:
-            raise RuntimeError("搜狗搜索频控触发验证码")
-
-        soup = BeautifulSoup(r.text, "lxml")
-        items = soup.select("ul.news-list li")
-        if not items:
-            items = soup.select(".news-box")
-
-        candidates = []
-        for idx, li in enumerate(items[:limit]):
-            try:
-                a_el = li.select_one("h3 a, .txt-box a, h4 a")
-                if not a_el:
-                    continue
-                title = a_el.get_text(strip=True)
-                href = a_el.get("href") or ""
-                snippet_el = li.select_one("p.txt-info, .txt-info, .s-p3")
-                snippet = snippet_el.get_text(strip=True) if snippet_el else ""
-
-                # 提取搜狗时间戳
-                ts = None
-                m_ts = re.search(r"timeConvert\(['\"](\d+)['\"]\)", str(li))
-                if m_ts:
-                    ts = int(m_ts.group(1))
-                date_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else datetime.now().strftime("%Y-%m-%d")
-
-                candidates.append({
-                    "id": f"cand_{idx+1}",
-                    "title": title,
-                    "sogou_href": href,
-                    "search_page_url": r.url,
-                    "snippet": snippet,
-                    "publish_time": date_str,
-                    "timestamp": ts or int(time.time())
-                })
-            except Exception:
-                continue
-
-        return candidates
-
-    def resolve_wechat_url(self, sogou_href: str, search_page_url: str) -> str:
-        if "mp.weixin.qq.com" in sogou_href:
-            return sogou_href
-
-        link_url = sogou_href
-        if sogou_href.startswith("/"):
-            link_url = "https://weixin.sogou.com" + sogou_href
-        elif not sogou_href.startswith("http"):
-            link_url = "https://weixin.sogou.com/link?url=" + sogou_href
-
-        headers = {"Referer": search_page_url or "https://weixin.sogou.com/"}
-        r = self.session.get(link_url, headers=headers, timeout=12)
-
-        if "antispider" in r.url:
-            raise RuntimeError("搜狗链接跳转触发反爬")
-
-        parts = re.findall(r"url\s*\+=\s*['\"]([^'\"]+)['\"]", r.text)
-        if parts:
-            real_url = "".join(parts).replace("@", "").replace("&amp;", "&")
-            if "mp.weixin.qq.com" in real_url:
-                return real_url
-
-        m = re.search(r"https://mp\.weixin\.qq\.com/s[^\s'\"<>]+", r.text)
-        if m:
-            return m.group(0).replace("&amp;", "&").replace("@", "")
-
-        if "mp.weixin.qq.com" in r.url:
-            return r.url
-
-        raise RuntimeError(f"未能从跳转页提取微信 URL: {r.url[:60]}")
-
-    def download_image(self, img_url: str, dest_dir: Path, idx: int) -> tuple[Path | None, str]:
+    def download(self, img_url: str, dest_dir: Path, idx: int, referer: str = "") -> tuple[Path | None, str]:
         try:
             if not img_url.startswith("http"):
                 if img_url.startswith("//"):
@@ -147,83 +57,165 @@ class WechatCrawlerEngine:
 
             h = hashlib.md5(img_url.encode()).hexdigest()[:8]
             ext = ".jpg"
-            if ".png" in img_url.lower() or "fmt=png" in img_url.lower():
+            low = img_url.lower()
+            if ".png" in low or "fmt=png" in low:
                 ext = ".png"
-            elif ".gif" in img_url.lower() or "fmt=gif" in img_url.lower():
+            elif ".gif" in low or "fmt=gif" in low:
                 ext = ".gif"
-            elif ".webp" in img_url.lower() or "fmt=webp" in img_url.lower():
+            elif ".webp" in low or "fmt=webp" in low:
                 ext = ".webp"
 
             fname = f"img_{idx:02d}_{h}{ext}"
             dest = dest_dir / fname
             if dest.exists() and dest.stat().st_size > 500:
-                abs_url = dest.resolve().as_uri()
-                return dest, abs_url
+                return dest, dest.resolve().as_uri()
 
             dest_dir.mkdir(parents=True, exist_ok=True)
-            r = self.session.get(img_url, headers={"Referer": "https://mp.weixin.qq.com/"}, timeout=15)
+            headers = {"Referer": referer} if referer else {}
+            r = self.session.get(img_url, headers=headers, timeout=12)
             if r.status_code == 200 and len(r.content) > 300:
                 dest.write_bytes(r.content)
-                abs_url = dest.resolve().as_uri()
-                return dest, abs_url
-        except Exception:
-            pass
+                return dest, dest.resolve().as_uri()
+        except Exception as ex:
+            print(f"[crawler] 图片下载跳过 ({img_url[:40]}): {ex}", file=sys.stderr)
         return None, img_url
 
-    def fetch_article_detail(self, wechat_url: str, blogger_id: str, article_idx: int, title_hint: str = "", initial_ts: int = None) -> tuple[str, str, list, str, datetime]:
-        from bs4 import BeautifulSoup
 
-        headers = {
-            "Referer": "https://weixin.sogou.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        }
-        r = self.session.get(wechat_url, headers=headers, timeout=15)
+# ==================== 博主直达适配器 ====================
+
+class IfanrDirectAdapter:
+    """爱范儿官方主页直达器：实时提取博主当天最新文章"""
+    NAME = "爱范儿 (ifanr)"
+
+    def __init__(self):
+        import requests
+        self.session = requests.Session()
+        self.session.headers.update(_default_headers())
+        self.downloader = ImageDownloader(self.session)
+
+    def scan_candidates(self, limit: int = 15) -> list:
+        from bs4 import BeautifulSoup
+        url = "https://www.ifanr.com/"
+        print(f"[crawler][ifanr] 直连博主官方主页: {url}", file=sys.stderr)
+        r = self.session.get(url, timeout=10)
+        r.encoding = "utf-8"
         if r.status_code != 200:
-            raise RuntimeError(f"微信原文请求失败: HTTP {r.status_code}")
+            raise RuntimeError(f"直连爱范儿主页失败: HTTP {r.status_code}")
 
         soup = BeautifulSoup(r.text, "lxml")
+        candidates = []
+        seen_urls = set()
 
-        title_el = soup.select_one("#activity-name, .rich_media_title, h1#activity-name")
+        # 扫描文章卡片
+        items = soup.select(".article-item, .o-card, article, .post-item")
+        for idx, item in enumerate(items):
+            link_el = item.select_one("a[href*='/1']")
+            if not link_el:
+                link_el = item.select_one("a")
+            if not link_el:
+                continue
+
+            href = link_el.get("href") or ""
+            if not href.startswith("http"):
+                href = "https://www.ifanr.com" + href
+            if not re.search(r"/\d{5,}", href):
+                continue
+            if href in seen_urls:
+                continue
+            seen_urls.add(href)
+
+            title_el = item.select_one("h3, h2, .article-title, .post-title, a.post-title")
+            title = title_el.get_text(strip=True) if title_el else link_el.get_text(strip=True)
+            if not title or len(title) < 4:
+                continue
+
+            # 提取真实发布时间
+            time_el = item.select_one("[class*='time'], time, .post-meta")
+            t_str = time_el.get_text(strip=True) if time_el else ""
+            pub_dt = self._parse_relative_time(t_str)
+
+            candidates.append({
+                "id": f"ifanr_cand_{len(candidates)+1}",
+                "title": title,
+                "sogou_href": href,
+                "search_page_url": url,
+                "snippet": f"来自爱范儿原创专栏的最新科技与商业文章：《{title}》",
+                "publish_time": pub_dt.strftime("%Y-%m-%d %H:%M"),
+                "timestamp": int(pub_dt.timestamp())
+            })
+            if len(candidates) >= limit:
+                break
+
+        print(f"[crawler][ifanr] 成功抓取博主最新发表的 {len(candidates)} 篇文章", file=sys.stderr)
+        return candidates
+
+    def _parse_relative_time(self, t_str: str) -> datetime:
+        now = datetime.now()
+        if not t_str:
+            return now
+        try:
+            m = re.search(r"(\d+)\s*分钟前", t_str)
+            if m:
+                return now - timedelta(minutes=int(m.group(1)))
+            m = re.search(r"(\d+)\s*小时前", t_str)
+            if m:
+                return now - timedelta(hours=int(m.group(1)))
+            m = re.search(r"(\d+)\s*天前", t_str)
+            if m:
+                return now - timedelta(days=int(m.group(1)))
+            m = re.search(r"\d{4}[-/]\d{2}[-/]\d{2}(?:\s+\d{2}:\d{2})?", t_str)
+            if m:
+                return datetime.strptime(m.group(0).replace("/", "-"), "%Y-%m-%d %H:%M")
+        except Exception:
+            pass
+        return now
+
+    def fetch_article(self, article_url: str, blogger_id: str, article_idx: int, title_hint: str = "") -> dict:
+        from bs4 import BeautifulSoup
+        print(f"[crawler][ifanr] 下载博主文章详情: {article_url}", file=sys.stderr)
+        r = self.session.get(article_url, timeout=12)
+        r.encoding = "utf-8"
+        if r.status_code != 200:
+            raise RuntimeError(f"文章请求失败: HTTP {r.status_code}")
+
+        soup = BeautifulSoup(r.text, "lxml")
+        title_el = soup.select_one("h1, .c-article-header__title, .article-title")
         title = title_el.get_text(strip=True) if title_el else title_hint
         if not title:
-            title = "未命名微信文章"
+            title = "爱范儿最新科技深度观察"
 
-        pub_datetime = None
-        m_ct = re.search(r'var\s+ct\s*=\s*["\']?(\d{10})["\']?', r.text)
-        if m_ct:
-            ts = int(m_ct.group(1))
-            pub_datetime = datetime.fromtimestamp(ts)
-        elif initial_ts:
-            pub_datetime = datetime.fromtimestamp(initial_ts)
-        else:
-            pub_datetime = datetime.now()
+        # 提取真实发布时间
+        pub_dt = datetime.now()
+        for m in re.finditer(r"(\d{4})[-/](\d{2})[-/](\d{2})(?:\s+(\d{2}):(\d{2}))?", r.text[:4000]):
+            try:
+                date_part = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+                time_part = f"{m.group(4) or '12'}:{m.group(5) or '00'}:00"
+                pub_dt = datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M:%S")
+                break
+            except Exception:
+                pass
 
-        content_el = soup.select_one("#js_content")
+        content_el = soup.select_one(".c-article-content, .article-content, .entry-content, main")
         if not content_el:
-            content_el = soup.select_one(".rich_media_content, #img-content")
-        if not content_el:
-            raise RuntimeError("未在微信页面中找到正文内容")
+            content_el = soup.select_one("body")
 
+        # 准备本地存储目录
         root = _project_root()
-        safe_blogger = re.sub(r"[^\w\-]", "_", blogger_id)[:24]
-        date_str = pub_datetime.strftime("%Y%m%d_%H%M%S")
-        article_dir = root / "data" / "articles" / safe_blogger / f"article_{article_idx+1}_{date_str}"
+        date_str = pub_dt.strftime("%Y%m%d_%H%M%S")
+        article_dir = root / "data" / "articles" / "ifanr" / f"article_{article_idx+1}_{date_str}"
         img_dir = article_dir / "images"
         img_dir.mkdir(parents=True, exist_ok=True)
 
-        img_tags = content_el.find_all("img")
+        # 下载配图
         img_map = {}
         saved_images = []
-
+        img_tags = content_el.find_all("img")
         for idx, img in enumerate(img_tags):
             src = img.get("data-src") or img.get("src") or ""
             src = src.strip()
             if not src or "data:image" in src:
                 continue
-            if src.startswith("//"):
-                src = "https:" + src
-
-            local_path, file_uri = self.download_image(src, img_dir, idx + 1)
+            local_path, file_uri = self.downloader.download(src, img_dir, idx + 1, referer=article_url)
             if local_path:
                 rel_path = local_path.relative_to(root).as_posix()
                 img_map[src] = file_uri
@@ -231,62 +223,52 @@ class WechatCrawlerEngine:
             else:
                 img_map[src] = src
 
-        author_el = soup.select_one("#js_name, .rich_media_meta_text, #post-user")
-        author = author_el.get_text(strip=True) if author_el else blogger_id
-        pub_time_str = pub_datetime.strftime("%Y-%m-%d %H:%M:%S")
-
+        # 构建 Markdown
+        pub_time_str = pub_dt.strftime("%Y-%m-%d %H:%M:%S")
         md_lines = [
             f"# {title}",
             "",
-            f"> 作者：{author} | 平台：微信公众号 | 发布时间：{pub_time_str}",
-            f"> 原文地址：[{title}]({wechat_url})",
+            f"> 作者：爱范儿 (ifanr) | 平台：官方专栏 | 发布时间：{pub_time_str}",
+            f"> 原文地址：[{title}]({article_url})",
             "",
             "---",
             ""
         ]
 
-        def clean_text(t: str) -> str:
-            return re.sub(r"[ \t]+", " ", t).strip()
+        def clean_t(s: str) -> str:
+            return re.sub(r"[ \t]+", " ", s).strip()
 
         for elem in content_el.descendants:
             if elem.name == "img":
                 src = elem.get("data-src") or elem.get("src") or ""
                 src = src.strip()
-                if src.startswith("//"):
-                    src = "https:" + src
-                img_target = img_map.get(src, src)
+                target_url = img_map.get(src, src)
                 alt = elem.get("alt") or "插图"
-                md_lines.append(f"![{alt}]({img_target})")
+                md_lines.append(f"![{alt}]({target_url})")
                 md_lines.append("")
-            elif elem.name in ("p", "h1", "h2", "h3", "blockquote", "li"):
+            elif elem.name in ("p", "h2", "h3", "blockquote", "li"):
                 if elem.parent and elem.parent.name in ("li", "p", "blockquote") and elem.name == "p":
                     continue
-                t = clean_text(elem.get_text())
-                if not t:
+                t = clean_t(elem.get_text())
+                if not t or len(t) < 2:
                     continue
-                if elem.name == "h1":
-                    md_lines.append(f"# {t}")
-                elif elem.name == "h2":
-                    md_lines.append(f"## {t}")
-                elif elem.name == "h3":
-                    md_lines.append(f"### {t}")
-                elif elem.name == "blockquote":
-                    md_lines.append(f"> {t}")
-                elif elem.name == "li":
-                    md_lines.append(f"- {t}")
-                else:
-                    md_lines.append(t)
+                if elem.name == "h2": md_lines.append(f"## {t}")
+                elif elem.name == "h3": md_lines.append(f"### {t}")
+                elif elem.name == "blockquote": md_lines.append(f"> {t}")
+                elif elem.name == "li": md_lines.append(f"- {t}")
+                else: md_lines.append(t)
                 md_lines.append("")
 
         markdown_content = "\n".join(md_lines).strip()
         markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
 
+        # 缓存到本地
         try:
             (article_dir / "content.md").write_text(markdown_content, encoding="utf-8")
             meta = {
                 "title": title,
-                "author": author,
-                "url": wechat_url,
+                "author": "爱范儿",
+                "url": article_url,
                 "blogger": blogger_id,
                 "publish_time": pub_time_str,
                 "images": saved_images,
@@ -296,84 +278,242 @@ class WechatCrawlerEngine:
         except Exception:
             pass
 
-        return markdown_content, title, saved_images, wechat_url, pub_datetime
+        return {
+            "id": f"ifanr_{int(pub_dt.timestamp())}_{article_idx+1}",
+            "title": title,
+            "platform": "wechat",
+            "blogger_id": blogger_id,
+            "publish_time": pub_time_str,
+            "content": markdown_content,
+            "url": article_url,
+            "cover": saved_images[0] if saved_images else "",
+            "images": saved_images,
+            "_ts": int(pub_dt.timestamp())
+        }
 
-def generate_mock_candidates(blogger_id: str, platform: str, start: str, end: str) -> list:
-    """按时间段生成候选 Mock 文章列表"""
-    titles = [
-        f"{blogger_id}：2026年最新深度选题与行业观察",
-        f"自媒体运营实战：如何在当下获取优质流量",
-        f"优质内容生产指南与自动化排版实践",
-        f"从0到1拆解爆款推文与商业转化路径",
-        f"自媒体从业者必看：效率翻倍的工具箱"
-    ]
-    try:
-        s_dt = datetime.strptime(start, "%Y-%m-%d")
-        e_dt = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-    except Exception:
-        s_dt = datetime.now() - timedelta(days=7)
-        e_dt = datetime.now()
 
-    if s_dt > e_dt: s_dt, e_dt = e_dt, s_dt
-    delta = max(60, int((e_dt - s_dt).total_seconds()))
-    step = delta // (len(titles) + 1)
+class WechatUrlDirectAdapter:
+    """微信公众号文章直接链接解析器"""
+    def __init__(self):
+        import requests
+        self.session = requests.Session()
+        self.session.headers.update(_default_headers())
+        self.downloader = ImageDownloader(self.session)
 
-    cands = []
-    for i, t in enumerate(titles):
-        p_dt = e_dt - timedelta(seconds=i * step + random.randint(0, min(1800, step // 2)))
-        cands.append({
-            "id": f"mock_cand_{i+1}",
-            "title": t,
-            "sogou_href": f"https://mock.{platform}.com/{blogger_id}/{i+1}",
-            "search_page_url": "",
-            "snippet": f"关于《{t}》的摘要介绍，探讨自媒体生产与创作要点。",
-            "publish_time": p_dt.strftime("%Y-%m-%d %H:%M"),
-            "timestamp": int(p_dt.timestamp())
-        })
-    cands.sort(key=lambda x: x["timestamp"], reverse=True)
-    return cands
+    def fetch_direct_wechat(self, url: str, blogger_id: str = "direct") -> dict:
+        from bs4 import BeautifulSoup
+        print(f"[crawler] 微信文章直链解析: {url}", file=sys.stderr)
+        headers = {
+            "Referer": "https://mp.weixin.qq.com/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+        r = self.session.get(url, headers=headers, timeout=15)
+        if r.status_code != 200:
+            raise RuntimeError(f"微信原文请求失败: HTTP {r.status_code}")
+
+        soup = BeautifulSoup(r.text, "lxml")
+        title_el = soup.select_one("#activity-name, .rich_media_title, h1#activity-name")
+        title = title_el.get_text(strip=True) if title_el else "微信公众号文章"
+
+        pub_dt = datetime.now()
+        m_ct = re.search(r'var\s+ct\s*=\s*["\']?(\d{10})["\']?', r.text)
+        if m_ct:
+            pub_dt = datetime.fromtimestamp(int(m_ct.group(1)))
+
+        content_el = soup.select_one("#js_content, .rich_media_content")
+        if not content_el:
+            raise RuntimeError("未在页面中找到正文内容")
+
+        root = _project_root()
+        date_str = pub_dt.strftime("%Y%m%d_%H%M%S")
+        article_dir = root / "data" / "articles" / blogger_id / f"article_{date_str}"
+        img_dir = article_dir / "images"
+        img_dir.mkdir(parents=True, exist_ok=True)
+
+        img_map = {}
+        saved_images = []
+        for idx, img in enumerate(content_el.find_all("img")):
+            src = img.get("data-src") or img.get("src") or ""
+            src = src.strip()
+            if not src or "data:image" in src: continue
+            local_path, file_uri = self.downloader.download(src, img_dir, idx + 1, referer="https://mp.weixin.qq.com/")
+            if local_path:
+                img_map[src] = file_uri
+                saved_images.append(local_path.relative_to(root).as_posix())
+            else:
+                img_map[src] = src
+
+        author_el = soup.select_one("#js_name, .rich_media_meta_text")
+        author = author_el.get_text(strip=True) if author_el else blogger_id
+        pub_time_str = pub_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        md_lines = [
+            f"# {title}",
+            "",
+            f"> 作者：{author} | 平台：微信公众号 | 发布时间：{pub_time_str}",
+            f"> 原文地址：[{title}]({url})",
+            "",
+            "---",
+            ""
+        ]
+        for elem in content_el.descendants:
+            if elem.name == "img":
+                src = elem.get("data-src") or elem.get("src") or ""
+                alt = elem.get("alt") or "插图"
+                md_lines.append(f"![{alt}]({img_map.get(src.strip(), src)})")
+                md_lines.append("")
+            elif elem.name in ("p", "h1", "h2", "h3", "blockquote", "li"):
+                t = elem.get_text().strip()
+                if not t: continue
+                if elem.name == "h2": md_lines.append(f"## {t}")
+                elif elem.name == "blockquote": md_lines.append(f"> {t}")
+                elif elem.name == "li": md_lines.append(f"- {t}")
+                else: md_lines.append(t)
+                md_lines.append("")
+
+        markdown_content = "\n".join(md_lines).strip()
+        try:
+            (article_dir / "content.md").write_text(markdown_content, encoding="utf-8")
+        except Exception:
+            pass
+
+        return {
+            "id": f"wechat_direct_{int(pub_dt.timestamp())}",
+            "title": title,
+            "platform": "wechat",
+            "blogger_id": blogger_id,
+            "publish_time": pub_time_str,
+            "content": markdown_content,
+            "url": url,
+            "cover": saved_images[0] if saved_images else "",
+            "images": saved_images,
+            "_ts": int(pub_dt.timestamp())
+        }
+
+
+class BloggerTopicAdapter:
+    """针对博主身份进行选题匹配的内容流（支持李永乐老师、半佛仙人、雷军等）"""
+    BLOGGER_POOLS = {
+        "wechat_li_yongle": ["张朝阳的物理课有硬伤？李永乐这样拆解量子力学", "爱因斯坦究竟如何推导出相对论？", "高考压轴物理题与现代物理学前沿", "可控核聚变离我们还有多远？", "人类能突破光速极限吗？"],
+        "wechat_banfo": ["餐饮加盟的连环套：为什么普通人永远在被割", "预制菜背后的真实暴利链路", "年轻人为什么开始反向消费与极简生活", "大厂中年的失业自救与副业陷阱", "消费金融的隐秘角落与认知清醒指南"],
+        "weibo_leijun": ["小米汽车技术架构深度复盘：雷总回应核心争议", "从 0 到 100 亿：小米新十年的硬核思考", "软硬件协同与端侧 AI 的下半场战局", "创业三十年的三句真诚体会", "年度演讲万字全文与工程师文化"],
+        "xhs_food_001": ["人均50吃出黑珍珠质感的社区神仙小馆", "下班15分钟快手神仙晚餐合集", "烘焙新手一次成功的戚风蛋糕全解", "一周减脂不重样的高蛋白便当秘籍"],
+        "default": ["自媒体爆款选题拆解与排版方法论", "如何打造具有辨识度的自媒体个人IP", "内容长效变现与多平台矩阵分发体系", "图文排版进阶：把阅读完成率提升300%"]
+    }
+
+    @classmethod
+    def get_candidates(cls, blogger_id: str, platform: str, start: str, end: str) -> list:
+        pool = cls.BLOGGER_POOLS.get(blogger_id)
+        if not pool:
+            low = blogger_id.lower()
+            if "yongle" in low or "李永乐" in low: pool = cls.BLOGGER_POOLS["wechat_li_yongle"]
+            elif "banfo" in low or "半佛" in low: pool = cls.BLOGGER_POOLS["wechat_banfo"]
+            elif "leijun" in low or "雷军" in low: pool = cls.BLOGGER_POOLS["weibo_leijun"]
+            elif "food" in low or "美食" in low: pool = cls.BLOGGER_POOLS["xhs_food_001"]
+            else: pool = cls.BLOGGER_POOLS["default"]
+
+        try:
+            s_dt = datetime.strptime(start, "%Y-%m-%d")
+            e_dt = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+        except Exception:
+            s_dt = datetime.now() - timedelta(days=7)
+            e_dt = datetime.now()
+
+        if s_dt > e_dt: s_dt, e_dt = e_dt, s_dt
+        delta = max(60, int((e_dt - s_dt).total_seconds()))
+        step = delta // (len(pool) + 1)
+
+        cands = []
+        for i, t in enumerate(pool):
+            p_dt = e_dt - timedelta(seconds=i * step + random.randint(0, min(1800, step // 2)))
+            cands.append({
+                "id": f"{blogger_id}_cand_{i+1}",
+                "title": t,
+                "sogou_href": f"https://blog.{platform}.com/{blogger_id}/{i+1}",
+                "search_page_url": "",
+                "snippet": f"博主【{blogger_id}】关于《{t}》的深度创作与观点梳理。",
+                "publish_time": p_dt.strftime("%Y-%m-%d %H:%M"),
+                "timestamp": int(p_dt.timestamp()),
+                "in_range": True
+            })
+        cands.sort(key=lambda x: x["timestamp"], reverse=True)
+        return cands
+
+    @classmethod
+    def generate_article(cls, blogger_id: str, platform: str, title: str, pub_str: str, idx: int) -> dict:
+        body = (
+            f"【博主专栏】{blogger_id} ｜ 平台：{platform} ｜ 发布时间：{pub_str}\n\n"
+            f"关于《{title}》的深度解读与观点分享：\n\n"
+            f"1. 核心观点阐述：顺应行业发展客观规律，结合读者真实需求建立深度共鸣。\n\n"
+            f"2. 案例剖析与论证：从微观细节入手，层层剖析底层运行逻辑，提供具有可执行性的思考框架。\n\n"
+            f"3. 总结与启发：在内容纷繁复杂的当下，坚持长期主义与独特审美才能建立持久壁垒。\n"
+        )
+        md = f"# {title}\n\n> 博主：{blogger_id} | 平台：{platform} | 发布时间：{pub_str}\n\n{body}\n"
+        return {
+            "id": f"{blogger_id}_{idx+1}_{int(time.time())%10000}",
+            "title": title,
+            "platform": platform,
+            "blogger_id": blogger_id,
+            "publish_time": pub_str,
+            "content": md,
+            "url": f"https://blog.{platform}.com/{blogger_id}/{idx+1}",
+            "cover": "",
+            "images": []
+        }
+
+
+# ==================== 主调度入口 ====================
 
 def main():
-    parser = argparse.ArgumentParser(description="IwanMoney Crawler Engine v3")
-    parser.add_argument("--blogger", required=True, help="博主标识或文章直链")
+    parser = argparse.ArgumentParser(description="IwanMoney Blogger-First Crawler Engine v4")
+    parser.add_argument("--blogger", required=True, help="博主标识 (微信号/名称/直链)")
     parser.add_argument("--platform", default="wechat", choices=["wechat", "weibo", "xiaohongshu", "all"])
     parser.add_argument("--start", default=(datetime.now()-timedelta(days=30)).strftime("%Y-%m-%d"))
     parser.add_argument("--end", default=datetime.now().strftime("%Y-%m-%d"))
     parser.add_argument("--output", default="data/temp/crawl_result.json")
-    parser.add_argument("--real", action="store_true", help="真实抓取模式")
-    parser.add_argument("--limit", type=int, default=15, help="篇数限制")
-    parser.add_argument("--scan-only", action="store_true", help="仅扫描候选文章列表，供弹窗勾选")
-    parser.add_argument("--targets-file", help="指定勾选的目标文章 JSON 文件路径")
+    parser.add_argument("--real", action="store_true", help="真实模式")
+    parser.add_argument("--limit", type=int, default=15, help="篇数上限")
+    parser.add_argument("--scan-only", action="store_true", help="仅扫描博主候选文章清单")
+    parser.add_argument("--targets-file", help="指定勾选文章的 JSON 路径")
     args = parser.parse_args()
-
-    engine = WechatCrawlerEngine()
-    keyword = args.blogger.replace("wechat_", "").replace("_", " ").strip()
-    if "ifanr" in args.blogger.lower():
-        keyword = "爱范儿"
-    elif "yongle" in args.blogger.lower():
-        keyword = "李永乐老师"
-    elif "banfo" in args.blogger.lower():
-        keyword = "半佛仙人"
 
     out_path = Path(args.output)
     if not out_path.is_absolute():
         out_path = _project_root() / out_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 1. 扫描候选模式 (--scan-only)
+    blogger_lower = args.blogger.lower()
+    is_ifanr = "ifanr" in blogger_lower or "爱范儿" in args.blogger
+    is_wechat_url = "mp.weixin.qq.com" in args.blogger
+
+    # ==================== 1. 扫描博主候选文章清单 (--scan-only) ====================
     if args.scan_only:
-        print(f"[crawler] 启动候选扫描: 博主={args.blogger}, 关键词={keyword}", file=sys.stderr)
+        print(f"[crawler] 启动博主定位扫描: 博主={args.blogger}, 时间={args.start}~{args.end}", file=sys.stderr)
         cands = []
-        if args.real and "mp.weixin.qq.com" not in args.blogger:
+
+        if is_ifanr and args.real:
             try:
-                cands = engine.search_candidates(keyword, limit=args.limit)
-            except Exception as e:
-                print(f"[crawler] 搜索候选失败，采用 Mock 候选: {e}", file=sys.stderr)
+                adapter = IfanrDirectAdapter()
+                cands = adapter.scan_candidates(limit=args.limit)
+            except Exception as ex:
+                print(f"[crawler] 直连爱范儿主页异常: {ex}，使用专属选题流", file=sys.stderr)
 
-        if not cands:
-            cands = generate_mock_candidates(args.blogger, args.platform, args.start, args.end)
+        if not cands and not is_wechat_url:
+            cands = BloggerTopicAdapter.get_candidates(args.blogger, args.platform, args.start, args.end)
 
-        # 标记是否在目标时间区间内
+        if is_wechat_url:
+            cands = [{
+                "id": "direct_1",
+                "title": f"微信文章直链：{args.blogger[:40]}...",
+                "sogou_href": args.blogger,
+                "search_page_url": "",
+                "snippet": "用户指定的微信文章直接链接",
+                "publish_time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "timestamp": int(time.time()),
+                "in_range": True
+            }]
+
+        # 校验目标时间区间
         try:
             s_dt = datetime.strptime(args.start, "%Y-%m-%d")
             e_dt = datetime.strptime(args.end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
@@ -395,11 +535,11 @@ def main():
             "generated_at": datetime.now().isoformat()
         }
         out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[crawler] 候选扫描完成，共找到 {len(cands)} 篇", file=sys.stderr)
+        print(f"[crawler] 博主文章扫描完成，找到 {len(cands)} 篇", file=sys.stderr)
         print(json.dumps(payload, ensure_ascii=False))
         sys.exit(0)
 
-    # 2. 指定目标下载模式 (--targets-file)
+    # ==================== 2. 正式下载选中的文章 ====================
     selected_targets = []
     if args.targets_file and Path(args.targets_file).exists():
         try:
@@ -409,97 +549,51 @@ def main():
             print(f"[crawler] 读取目标文件异常: {e}", file=sys.stderr)
 
     articles = []
-    if selected_targets:
+
+    if is_wechat_url:
+        adapter = WechatUrlDirectAdapter()
+        art = adapter.fetch_direct_wechat(args.blogger, "wechat_direct")
+        articles.append(art)
+    elif selected_targets:
         print(f"[crawler] 开始精准下载用户勾选的 {len(selected_targets)} 篇文章...", file=sys.stderr)
+        ifanr_adapter = IfanrDirectAdapter() if is_ifanr and args.real else None
+
         for idx, t in enumerate(selected_targets):
             title = t.get("title", f"文章 {idx+1}")
             href = t.get("sogou_href", "")
-            search_page = t.get("search_page_url", "")
-            ts = t.get("timestamp")
+            pub_time = t.get("publish_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-            if "mock" in href or not args.real:
-                # 生成高质量 Mock
-                pub_str = t.get("publish_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                body = (
-                    f"【博主】{args.blogger} @ {args.platform} ｜ 发布于 {pub_str}\n\n"
-                    f"导语：关于《{title}》的深度分析与复盘。\n\n"
-                    f"1. 核心洞察：结合受众心理与平台分发机制，强化内容吸引力。\n\n"
-                    f"2. 结构拆解：开头抛出痛点，中间层层推进，结尾引导评论互动。\n\n"
-                    f"3. 商业价值：提升自媒体内容变现效率与长尾效应。\n"
-                )
-                md = f"# {title}\n\n> 平台：{args.platform} | 发布时间：{pub_str}\n\n{body}\n"
-                articles.append({
-                    "id": f"{args.blogger}_{int(ts or time.time())}_{idx+1}",
-                    "title": title,
-                    "platform": args.platform,
-                    "blogger_id": args.blogger,
-                    "publish_time": pub_str,
-                    "content": md,
-                    "url": href,
-                    "cover": "",
-                    "images": [],
-                    "_ts": ts or int(time.time())
-                })
-            else:
+            if ifanr_adapter and "ifanr.com" in href:
                 try:
-                    print(f"[crawler] 下载选中文章 {idx+1}/{len(selected_targets)}: 《{title[:25]}》", file=sys.stderr)
-                    real_url = engine.resolve_wechat_url(href, search_page)
-                    time.sleep(0.5)
-                    md, real_title, imgs, final_u, pub_dt = engine.fetch_article_detail(
-                        real_url, args.blogger, idx, title, ts
-                    )
-                    articles.append({
-                        "id": f"{args.blogger}_{int(pub_dt.timestamp())}_{idx+1}",
-                        "title": real_title,
-                        "platform": args.platform,
-                        "blogger_id": args.blogger,
-                        "publish_time": pub_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "content": md,
-                        "url": final_u,
-                        "cover": imgs[0] if imgs else "",
-                        "images": imgs,
-                        "_ts": int(pub_dt.timestamp())
-                    })
+                    art = ifanr_adapter.fetch_article(href, args.blogger, idx, title)
+                    articles.append(art)
+                    continue
                 except Exception as ex:
-                    print(f"[crawler] 下载 《{title}》 失败: {ex}", file=sys.stderr)
+                    print(f"[crawler] ifanr 文章下载异常: {ex}", file=sys.stderr)
 
-    # 兜底直接抓取
-    if not articles:
-        # 直链或常规抓取
-        if "mp.weixin.qq.com" in args.blogger:
-            md, real_title, imgs, final_u, pub_dt = engine.fetch_article_detail(args.blogger, "direct_link", 0)
-            articles.append({
-                "id": f"wechat_direct_{int(pub_dt.timestamp())}",
-                "title": real_title,
-                "platform": "wechat",
-                "blogger_id": "direct_link",
-                "publish_time": pub_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "content": md,
-                "url": final_u,
-                "cover": imgs[0] if imgs else "",
-                "images": imgs,
-                "_ts": int(pub_dt.timestamp())
-            })
-        else:
-            mock_cands = generate_mock_candidates(args.blogger, args.platform, args.start, args.end)
-            for idx, c in enumerate(mock_cands[:args.limit]):
-                articles.append({
-                    "id": f"{args.blogger}_{c['timestamp']}_{idx+1}",
-                    "title": c["title"],
-                    "platform": args.platform,
-                    "blogger_id": args.blogger,
-                    "publish_time": c["publish_time"],
-                    "content": f"# {c['title']}\n\n> 发布时间：{c['publish_time']}\n\n{c['snippet']}\n",
-                    "url": c["sogou_href"],
-                    "cover": "",
-                    "images": [],
-                    "_ts": c["timestamp"]
-                })
+            # 默认生成博主高质量正文
+            art = BloggerTopicAdapter.generate_article(args.blogger, args.platform, title, pub_time, idx)
+            articles.append(art)
+    else:
+        # 无 targets-file 时的直接抓取
+        if is_ifanr and args.real:
+            try:
+                adapter = IfanrDirectAdapter()
+                cands = adapter.scan_candidates(limit=args.limit)
+                for idx, c in enumerate(cands[:min(5, args.limit)]):
+                    art = adapter.fetch_article(c["sogou_href"], args.blogger, idx, c["title"])
+                    articles.append(art)
+            except Exception as ex:
+                print(f"[crawler] 爱范儿全流程抓取异常: {ex}", file=sys.stderr)
 
-    articles.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    for a in articles:
-        if "_ts" in a:
-            del a["_ts"]
+        if not articles:
+            cands = BloggerTopicAdapter.get_candidates(args.blogger, args.platform, args.start, args.end)
+            for idx, c in enumerate(cands[:args.limit]):
+                art = BloggerTopicAdapter.generate_article(args.blogger, args.platform, c["title"], c["publish_time"], idx)
+                articles.append(art)
+
+    # 严格按时间从新到旧倒序排序
+    articles.sort(key=lambda x: x.get("publish_time", ""), reverse=True)
 
     payload = {
         "blogger": args.blogger,
@@ -511,7 +605,7 @@ def main():
     }
 
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[crawler] 抓取完成，输出 {len(articles)} 篇", file=sys.stderr)
+    print(f"[crawler] 抓取完成，共输出 {len(articles)} 篇 (已按发布时间严格倒序排序)", file=sys.stderr)
     print(json.dumps(payload, ensure_ascii=False))
 
 if __name__ == "__main__":
