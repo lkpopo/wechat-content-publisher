@@ -35,17 +35,18 @@ def test_file_ipc():
         assert result.returncode == 0, f"exit {result.returncode}"
         assert tmp_out.exists(), "输出文件未生成"
         out = tmp_out.read_text(encoding="utf-8")
-        assert "[已润色]" in out, "润色标记缺失"
+        # Step2 Mock 输出为 【润色】/润色 兼容 Step1 的 [已润色]
+        assert "润色" in out, "润色标记缺失"
         print("✅ 文件 IPC 通过, 输出预览:")
         print(out[:400])
 
 def test_stdout_fallback():
     print("\n=== 测试 stdout 回退 ===")
     content = "单行测试"
-    cmd = [PY, str(SCRIPT), "--stdin", "--stdout"]
+    cmd = [PY, str(SCRIPT), "--stdin", "--stdout", "--mock"]
     env = {**subprocess.os.environ, "PYTHONIOENCODING": "utf-8"}
     result = subprocess.run(cmd, input=content, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
-    assert "[已润色]" in result.stdout
+    assert "润色" in result.stdout
     print("✅ stdout 通过")
 
 def test_crawler():

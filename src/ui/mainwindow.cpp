@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "utils/themeManager.h"
+#include "core/database.h"
+#include "core/article.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -9,9 +12,13 @@
 #include <QMessageBox>
 #include <QDebug>
 #include <QCoreApplication>
-#include <QStandardPaths>
 #include <QProcessEnvironment>
 #include <QScrollBar>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QGraphicsDropShadowEffect>
+#include <QTimer>
 
 // ================== 构造/析构 ==================
 MainWindow::MainWindow(QWidget *parent)
@@ -19,58 +26,73 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    setWindowTitle("IwanMoney — 自媒体搬运与发布客户端 v2.0 [Step2]");
+    resize(1320, 860);
 
-    // 窗口标题与初始状态
-    setWindowTitle("IwanMoney - 自媒体搬运与发布客户端 v1.0 [Step1]");
-    resize(1280, 800);
-
-    // 临时文件路径（与 Python 约定的 IPC 方式：文件交换）
-    // 优先使用可执行文件同级目录 data/temp，兼容开发期 currentPath
     QString baseTemp = QCoreApplication::applicationDirPath() + "/data/temp";
     QDir().mkpath(baseTemp);
     m_tempInPath  = baseTemp + "/temp_in.txt";
     m_tempOutPath = baseTemp + "/temp_out.txt";
+    m_crawlResultPath = baseTemp + "/crawl_result.json";
+    m_publishJsonPath = baseTemp + "/publish.json";
 
     setupBloggerList();
     setupConnections();
+    setupUiDetails();
 
-    // 默认时间段：近7天
     ui->dateEditStart->setDate(QDate::currentDate().addDays(-7));
     ui->dateEditEnd->setDate(QDate::currentDate());
     ui->dateEditStart->setCalendarPopup(true);
     ui->dateEditEnd->setCalendarPopup(true);
 
-    // 双屏编辑器提示
-    ui->textEditOriginal->setPlaceholderText("原文内容（左侧）\n\n- 点击左侧文章列表加载原文\n- 或手动粘贴待润色内容\n- 点击「AI润色」将调用 Python 脚本");
-    ui->textEditPolished->setPlaceholderText("润色后内容（右侧）\n\n- AI 润色结果将自动显示在此处\n- 可手动二次编辑后点击「发布到头条」");
+    ui->textEditOriginal->setPlaceholderText("在此粘贴原文，或点击左侧文章加载…");
+    ui->textEditPolished->setPlaceholderText("AI 润色结果将显示在此处，可二次编辑后发布…");
 
-    // 日志区
-    log("[系统] 初始化完成，临时目录: " + baseTemp);
-    log("[系统] Python: " + pythonExecutable());
-    updateStatus("就绪", 3000);
+    // QSplitter 默认比例 1:1
+    ui->splitterEditor->setStretchFactor(0, 1);
+    ui->splitterEditor->setStretchFactor(1, 1);
+    ui->splitterEditor->setSizes({520, 520});
+
+    log("[系统] 初始化完成 v2.0 | 临时目录: " + baseTemp);
+    log("[系统] Python: " + pythonExecutable() + " | DB: " + Database::instance().dbPath());
+    log("[系统] 主题: " + ThemeManager::instance().themeName() + " (点击右上角切换)");
+    updateStatus("就绪 · 选择博主后开始爬取", 4000);
 }
 
 MainWindow::~MainWindow()
 {
-    if (m_polishProcess) {
-        if (m_polishProcess->state() != QProcess::NotRunning) {
-            m_polishProcess->kill();
-            m_polishProcess->waitForFinished(1000);
-        }
-    }
-    if (m_crawlProcess) {
-        if (m_crawlProcess->state() != QProcess::NotRunning) {
-            m_crawlProcess->kill();
-            m_crawlProcess->waitForFinished(1000);
-        }
+    for (auto *p : {m_polishProcess, m_crawlProcess, m_publishProcess}) {
+        if (p && p->state() != QProcess::NotRunning) { p->kill(); p->waitForFinished(1000); }
     }
     delete ui;
 }
 
-// ================== 初始化 ==================
+// ================== UI 细节 ==================
+void MainWindow::setupUiDetails()
+{
+    // 卡片阴影 (现代感)
+    auto addShadow = [](QWidget *w, int blur=18, int yOffset=2){
+        auto *eff = new QGraphicsDropShadowEffect(w);
+        eff->setBlurRadius(blur);
+        eff->setOffset(0, yOffset);
+        eff->setColor(QColor(15, 23, 42, 28));
+        w->setGraphicsEffect(eff);
+    };
+    // 给 header 与左右面板加阴影（若显存允许）
+    if (ui->headerWidget) addShadow(ui->headerWidget, 20, 3);
+    // leftPanel/right内卡片已由QSS圆角实现，这里可选阴影
+    // 避免对滚动区加阴影导致性能问题，仅对顶层
+
+    // 初始主题按钮文字
+    if (ui->btnTheme) {
+        ui->btnTheme->setText(ThemeManager::instance().isDark() ? "☀ 浅色" : "🌙 深色");
+    }
+    // 状态点
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 就绪");
+}
+
 void MainWindow::setupBloggerList()
 {
-    // 预留多平台接口：platform 字段兼容 wechat/weibo/xiaohongshu/toutiao
     struct BloggerMock { QString name; QString platform; QString id; };
     QList<BloggerMock> bloggers = {
         {"李永乐老师", "wechat", "wechat_li_yongle"},
@@ -79,21 +101,17 @@ void MainWindow::setupBloggerList()
         {"小红书-美食探店", "xiaohongshu", "xhs_food_001"},
         {"Mock-测试博主",  "wechat", "mock_001"},
     };
-
     ui->listWidgetBloggers->clear();
     for (auto &b : bloggers) {
-        auto *item = new QListWidgetItem(QString("[%1] %2").arg(b.platform, b.name));
+        // 用小圆点区分平台颜色：wechat绿 weibo橙 xhs粉
+        QString dot = b.platform=="wechat" ? "🟢" : b.platform=="weibo" ? "🟠" : "🌸";
+        auto *item = new QListWidgetItem(QString("%1 %2  · %3").arg(dot, b.name, b.platform));
         item->setData(Qt::UserRole, b.id);
         item->setData(Qt::UserRole + 1, b.platform);
         item->setToolTip(QString("ID: %1\n平台: %2").arg(b.id, b.platform));
         ui->listWidgetBloggers->addItem(item);
     }
-
-    // 默认选中第一项
-    if (ui->listWidgetBloggers->count() > 0)
-        ui->listWidgetBloggers->setCurrentRow(0);
-
-    // 平台筛选下拉
+    if (ui->listWidgetBloggers->count() > 0) ui->listWidgetBloggers->setCurrentRow(0);
     ui->comboPlatform->clear();
     ui->comboPlatform->addItem("全部平台", "all");
     ui->comboPlatform->addItem("微信公众号", "wechat");
@@ -103,29 +121,17 @@ void MainWindow::setupBloggerList()
 
 void MainWindow::setupConnections()
 {
-    // 顶部筛选
-    connect(ui->listWidgetBloggers, &QListWidget::itemSelectionChanged,
-            this, &MainWindow::onBloggerSelectionChanged);
-    connect(ui->comboPlatform, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &MainWindow::onPlatformFilterChanged);
-
-    // 文章列表
-    connect(ui->listWidgetArticles, &QListWidget::itemClicked,
-            this, &MainWindow::onArticleClicked);
-    connect(ui->listWidgetArticles, &QListWidget::itemDoubleClicked,
-            this, &MainWindow::onArticleClicked);
-
-    // 底部按钮 —— 核心流程
+    connect(ui->listWidgetBloggers, &QListWidget::itemSelectionChanged, this, &MainWindow::onBloggerSelectionChanged);
+    connect(ui->comboPlatform, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onPlatformFilterChanged);
+    connect(ui->listWidgetArticles, &QListWidget::itemClicked, this, &MainWindow::onArticleClicked);
+    connect(ui->listWidgetArticles, &QListWidget::itemDoubleClicked, this, &MainWindow::onArticleClicked);
     connect(ui->btnCrawl,   &QPushButton::clicked, this, &MainWindow::onBtnCrawlClicked);
     connect(ui->btnPolish,  &QPushButton::clicked, this, &MainWindow::onBtnPolishClicked);
     connect(ui->btnPublish, &QPushButton::clicked, this, &MainWindow::onBtnPublishClicked);
-
-    // 额外：清空/交换按钮（若 UI 存在）
     if (ui->btnClear) {
         connect(ui->btnClear, &QPushButton::clicked, this, [this]{
-            ui->textEditOriginal->clear();
-            ui->textEditPolished->clear();
-            log("[操作] 已清空双屏内容");
+            ui->textEditOriginal->clear(); ui->textEditPolished->clear();
+            ui->lineEditTitle->clear(); log("[操作] 已清空双栏");
         });
     }
     if (ui->btnSwap) {
@@ -133,338 +139,329 @@ void MainWindow::setupConnections()
             QString a = ui->textEditOriginal->toPlainText();
             ui->textEditOriginal->setPlainText(ui->textEditPolished->toPlainText());
             ui->textEditPolished->setPlainText(a);
-            log("[操作] 已交换双屏内容");
+            log("[操作] 已互换双栏");
         });
     }
+    if (ui->btnTheme) {
+        connect(ui->btnTheme, &QPushButton::clicked, this, &MainWindow::onThemeToggled);
+    }
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this](ThemeManager::Theme t){
+        if (ui->btnTheme) ui->btnTheme->setText(t==ThemeManager::Dark ? "☀ 浅色" : "🌙 深色");
+        log(QString("[主题] 已切换到 %1").arg(t==ThemeManager::Dark?"深色":"浅色"));
+    });
 }
 
-// ================== 工具方法 ==================
+// ================== 工具 ==================
 QString MainWindow::pythonExecutable() const
 {
-    // 1. 优先环境变量 PYTHON_EXE
     QString envPy = qEnvironmentVariable("PYTHON_EXE");
     if (!envPy.isEmpty() && QFileInfo::exists(envPy)) return envPy;
-
-    // 2. 尝试 python / python3
 #ifdef Q_OS_WIN
-    // Windows 下优先 python
     return "python";
 #else
     return "python3";
 #endif
 }
-
 QString MainWindow::resolvePythonScript(const QString &relativePath) const
 {
-    // 尝试多个候选路径（兼容开发期与部署期）
     QStringList candidates = {
         QCoreApplication::applicationDirPath() + "/" + relativePath,
         QCoreApplication::applicationDirPath() + "/../" + relativePath,
         QDir::currentPath() + "/" + relativePath,
         QDir::currentPath() + "/../" + relativePath,
-        // 源码期直接相对路径
         relativePath
     };
-    for (auto &p : candidates) {
-        QFileInfo fi(QDir::cleanPath(p));
-        if (fi.exists()) return QDir::cleanPath(p);
-    }
-    // fallback：返回首选（用于报错提示）
+    for (auto &p : candidates) { QFileInfo fi(QDir::cleanPath(p)); if (fi.exists()) return QDir::cleanPath(p); }
     return QDir::cleanPath(candidates.first());
 }
-
 void MainWindow::log(const QString &msg)
 {
     QString ts = QDateTime::currentDateTime().toString("hh:mm:ss");
     ui->textEditLog->append(QString("[%1] %2").arg(ts, msg));
-    auto *bar = ui->textEditLog->verticalScrollBar();
-    bar->setValue(bar->maximum());
+    auto *bar = ui->textEditLog->verticalScrollBar(); bar->setValue(bar->maximum());
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● " + msg.left(18));
+}
+void MainWindow::updateStatus(const QString &msg, int timeout){ ui->statusbar->showMessage(msg, timeout); }
+
+void MainWindow::setPolishRunning(bool r){
+    ui->btnPolish->setEnabled(!r); ui->btnCrawl->setEnabled(!r); ui->btnPublish->setEnabled(!r);
+    ui->progressBar->setVisible(r); ui->progressBar->setRange(0,0);
+    ui->btnPolish->setText(r? "润色中…" : "✦  AI 润色");
+}
+void MainWindow::setCrawlRunning(bool r){
+    ui->btnCrawl->setEnabled(!r); ui->btnPolish->setEnabled(!r);
+    ui->progressBar->setVisible(r); ui->progressBar->setRange(0,0);
+    ui->btnCrawl->setText(r? "抓取中…" : "开始爬取");
+}
+void MainWindow::setPublishRunning(bool r){
+    ui->btnPublish->setEnabled(!r); ui->progressBar->setVisible(r); ui->progressBar->setRange(0,0);
+    ui->btnPublish->setText(r? "发布中…" : "发  布");
 }
 
-void MainWindow::updateStatus(const QString &msg, int timeout)
+void MainWindow::onThemeToggled()
 {
-    ui->statusbar->showMessage(msg, timeout);
+    ThemeManager::instance().toggle();
 }
 
-void MainWindow::setPolishRunning(bool running)
-{
-    ui->btnPolish->setEnabled(!running);
-    ui->btnCrawl->setEnabled(!running);
-    ui->progressBar->setVisible(running);
-    ui->progressBar->setRange(0, 0); // busy indicator
-    if (running) ui->btnPolish->setText("润色中...");
-    else ui->btnPolish->setText("AI润色 ▶");
-}
-
-// ================== 槽函数：筛选/文章 ==================
+// ================== 模拟旧：筛选 ==================
 void MainWindow::onBloggerSelectionChanged()
 {
-    auto *item = ui->listWidgetBloggers->currentItem();
-    if (!item) return;
+    auto *item = ui->listWidgetBloggers->currentItem(); if (!item) return;
     QString id = item->data(Qt::UserRole).toString();
     QString platform = item->data(Qt::UserRole + 1).toString();
-    log(QString("[筛选] 选中博主: %1 (平台:%2)").arg(id, platform));
-
-    // Step1 Mock：切换博主时刷新文章列表假数据
+    log(QString("[筛选] 选中 %1 (%2)").arg(id, platform));
+    // 优先从 DB 加载历史，否则 Mock
+    auto arts = Database::instance().loadArticles(id, 20);
+    if (!arts.isEmpty()) {
+        ui->listWidgetArticles->clear();
+        for (auto &a : arts) {
+            auto *it = new QListWidgetItem(a.title);
+            it->setData(Qt::UserRole, a.content);
+            it->setData(Qt::UserRole+1, a.id);
+            it->setToolTip(a.url + "\n" + a.publishTime.toString(Qt::ISODate));
+            ui->listWidgetArticles->addItem(it);
+        }
+        log(QString("[DB] 已加载 %1 篇历史文章").arg(arts.size()));
+        return;
+    }
+    // Mock 填充
     ui->listWidgetArticles->clear();
-    for (int i = 1; i <= 5; ++i) {
-        QString title = QString("Mock文章 %1 - %2 的示例标题 %3").arg(i).arg(id).arg(QDate::currentDate().toString("MM-dd"));
+    for (int i=1;i<=5;++i){
+        QString title = QString("Mock %1 - %2 %3").arg(i).arg(id, QDate::currentDate().toString("MM-dd"));
         auto *aItem = new QListWidgetItem(title);
-        aItem->setData(Qt::UserRole, QString("这是博主 %1 的第 %2 篇 Mock 文章正文。\n\n这是第一段，介绍背景。\n这是第二段，阐述观点。\n这是第三段，总结全文。\n\n时间：%3").arg(id).arg(i).arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
+        aItem->setData(Qt::UserRole, QString("博主 %1 第 %2 篇 Mock 正文。\n\n第一段：引入。\n第二段：论述。\n第三段：总结。\n\n%3").arg(id).arg(i).arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
         ui->listWidgetArticles->addItem(aItem);
     }
 }
-
 void MainWindow::onPlatformFilterChanged(int index)
 {
     QString platform = ui->comboPlatform->itemData(index).toString();
-    log("[筛选] 平台过滤: " + platform);
-    for (int i = 0; i < ui->listWidgetBloggers->count(); ++i) {
-        auto *item = ui->listWidgetBloggers->item(i);
-        QString p = item->data(Qt::UserRole + 1).toString();
-        bool visible = (platform == "all" || p == platform);
-        item->setHidden(!visible);
+    log("[筛选] 平台: " + platform);
+    for (int i=0;i<ui->listWidgetBloggers->count();++i){
+        auto *it=ui->listWidgetBloggers->item(i);
+        QString p=it->data(Qt::UserRole+1).toString();
+        it->setHidden(!(platform=="all"||p==platform));
     }
 }
-
 void MainWindow::onArticleClicked(QListWidgetItem *item)
 {
     if (!item) return;
-    QString content = item->data(Qt::UserRole).toString();
-    if (content.isEmpty()) content = item->text();
-    ui->textEditOriginal->setPlainText(content);
+    ui->textEditOriginal->setPlainText(item->data(Qt::UserRole).toString());
     ui->textEditPolished->clear();
-    // 同步标题
     ui->lineEditTitle->setText(item->text().left(40));
     log("[文章] 已加载: " + item->text());
 }
 
-// ================== 核心流程：爬取（Step1 Mock） ==================
+// ================== Step2：爬取（真实 QProcess） ==================
 void MainWindow::onBtnCrawlClicked()
 {
     auto *bloggerItem = ui->listWidgetBloggers->currentItem();
-    if (!bloggerItem) {
-        QMessageBox::warning(this, "提示", "请先选择一个博主");
-        return;
-    }
+    if (!bloggerItem) { QMessageBox::warning(this,"提示","请先选择博主"); return; }
     QString bloggerId = bloggerItem->data(Qt::UserRole).toString();
-    QDate start = ui->dateEditStart->date();
-    QDate end   = ui->dateEditEnd->date();
-    if (start > end) {
-        QMessageBox::warning(this, "提示", "开始日期不能晚于结束日期");
-        return;
-    }
+    QString platform = bloggerItem->data(Qt::UserRole+1).toString();
+    QDate start = ui->dateEditStart->date(), end = ui->dateEditEnd->date();
+    if (start > end) { QMessageBox::warning(this,"提示","开始日期不能晚于结束日期"); return; }
 
-    log(QString("[爬取] 开始抓取 博主=%1 时间=%2 至 %3").arg(bloggerId, start.toString(Qt::ISODate), end.toString(Qt::ISODate)));
-    updateStatus("正在抓取... (Mock演示)");
-
-    // Step1：暂用 Mock 数据直接填充，不走 Python；Step2 再接 python/crawler/crawler.py
-    // 演示 QProcess 调用爬虫的注释骨架：
-    /*
     QString script = resolvePythonScript("python/crawler/crawler.py");
-    QStringList args = { script, "--blogger", bloggerId, "--start", start.toString("yyyy-MM-dd"), "--end", end.toString("yyyy-MM-dd") };
-    m_crawlProcess = new QProcess(this);
-    connect(m_crawlProcess, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, [this](int code, QProcess::ExitStatus st){
-        log(QString("[爬取] 进程结束 exit=%1").arg(code));
-        // 读取 data/temp/crawl_result.json 并刷新 ui->listWidgetArticles
-    });
-    m_crawlProcess->start(pythonExecutable(), args);
-    */
+    if (!QFileInfo::exists(script)) { QMessageBox::critical(this,"错误","找不到 crawler.py: "+script); return; }
+    if (m_crawlProcess && m_crawlProcess->state()!=QProcess::NotRunning) { QMessageBox::information(this,"提示","抓取进行中…"); return; }
 
-    // Mock 刷新文章列表
-    onBloggerSelectionChanged();
-    updateStatus("抓取完成 (Mock 5 篇)", 3000);
-    log("[爬取] 完成，已加载 Mock 数据到文章列表");
+    log(QString("[爬取] %1 %2 %3~%4").arg(bloggerId, platform, start.toString(Qt::ISODate), end.toString(Qt::ISODate)));
+    updateStatus("正在抓取…"); setCrawlRunning(true);
+    QFile::remove(m_crawlResultPath);
+
+    if (m_crawlProcess) m_crawlProcess->deleteLater();
+    m_crawlProcess = new QProcess(this);
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert("PYTHONIOENCODING","utf-8");
+    m_crawlProcess->setProcessEnvironment(env);
+    m_crawlProcess->setProcessChannelMode(QProcess::MergedChannels);
+
+    connect(m_crawlProcess, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, &MainWindow::onCrawlFinished);
+    connect(m_crawlProcess, &QProcess::readyReadStandardOutput, this, [this]{ onCrawlStdout(QString::fromUtf8(m_crawlProcess->readAllStandardOutput())); });
+    connect(m_crawlProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError){ log("[爬取] 进程错误: "+m_crawlProcess->errorString()); setCrawlRunning(false); });
+
+    QStringList args = {script, "--blogger", bloggerId, "--platform", platform, "--start", start.toString("yyyy-MM-dd"), "--end", end.toString("yyyy-MM-dd"), "--output", m_crawlResultPath};
+    m_crawlProcess->setWorkingDirectory(QFileInfo(script).absolutePath());
+    m_crawlProcess->start(pythonExecutable(), args);
+    if (!m_crawlProcess->waitForStarted(5000)) {
+        setCrawlRunning(false); QMessageBox::critical(this,"启动失败", m_crawlProcess->errorString()); log("[爬取] 启动失败"); return;
+    }
+    log(QString("[爬取] PID=%1 已启动").arg(m_crawlProcess->processId()));
 }
 
-// ================== 核心流程：AI润色（QProcess演示） ==================
+void MainWindow::onCrawlStdout(const QString &text){
+    if (!text.trimmed().isEmpty()) log("[Crawler] " + text.trimmed().left(600));
+}
+
+void MainWindow::onCrawlFinished(int exitCode, QProcess::ExitStatus status)
+{
+    Q_UNUSED(status) setCrawlRunning(false);
+    log(QString("[爬取] 结束 code=%1").arg(exitCode));
+    if (exitCode!=0) {
+        QMessageBox::warning(this,"抓取失败", QString("crawler 退出码 %1\n请查看日志").arg(exitCode));
+        updateStatus("抓取失败",3000); return;
+    }
+    refreshArticleListFromJson(m_crawlResultPath);
+}
+
+void MainWindow::refreshArticleListFromJson(const QString &jsonPath)
+{
+    QFile f(jsonPath);
+    if (!f.exists()) { log("[爬取] 结果文件不存在: "+jsonPath); updateStatus("无结果文件",3000); return; }
+    if (!f.open(QIODevice::ReadOnly)) { log("[爬取] 无法读取: "+f.errorString()); return; }
+    auto doc = QJsonDocument::fromJson(f.readAll());
+    f.close();
+    QJsonArray arr;
+    int count=0;
+    if (doc.isObject()) { arr = doc.object().value("articles").toArray(); count = doc.object().value("count").toInt(arr.size()); }
+    else if (doc.isArray()) { arr = doc.array(); count = arr.size(); }
+
+    if (arr.isEmpty()) { log("[爬取] 空结果"); updateStatus("抓取完成 0篇",3000); return; }
+
+    QList<Article> articles;
+    for (auto v: arr) {
+        auto o=v.toObject();
+        Article a; a.id=o["id"].toString(); a.title=o["title"].toString(); a.content=o["content"].toString();
+        a.platform=o["platform"].toString(); a.bloggerId=o["blogger_id"].toString();
+        a.publishTime=QDateTime::fromString(o["publish_time"].toString(), Qt::ISODate);
+        if (!a.publishTime.isValid()) a.publishTime=QDateTime::currentDateTime();
+        a.url=o["url"].toString(); a.cover=o["cover"].toString();
+        // bloggerName 回填
+        for(int i=0;i<ui->listWidgetBloggers->count();++i){
+            auto *it=ui->listWidgetBloggers->item(i);
+            if(it->data(Qt::UserRole).toString()==a.bloggerId) a.bloggerName=it->text();
+        }
+        articles.append(a);
+    }
+    // 入库
+    Database::instance().saveArticles(articles);
+    // 刷新列表
+    ui->listWidgetArticles->clear();
+    for (auto &a: articles){
+        auto *it=new QListWidgetItem(a.title);
+        it->setData(Qt::UserRole, a.content);
+        it->setData(Qt::UserRole+1, a.id);
+        it->setData(Qt::UserRole+2, a.url);
+        it->setToolTip(QString("%1\n%2\n%3").arg(a.platform, a.publishTime.toString("yyyy-MM-dd"), a.url));
+        ui->listWidgetArticles->addItem(it);
+    }
+    log(QString("[爬取] 成功 %1 篇，已入库并刷新").arg(count));
+    updateStatus(QString("抓取完成 %1 篇").arg(count), 4000);
+}
+
+void MainWindow::refreshArticleListFromDb(const QString &bloggerId){
+    auto arts = Database::instance().loadArticles(bloggerId);
+    ui->listWidgetArticles->clear();
+    for(auto &a: arts){ auto *it=new QListWidgetItem(a.title); it->setData(Qt::UserRole,a.content); it->setData(Qt::UserRole+1,a.id); ui->listWidgetArticles->addItem(it); }
+}
+
+// ================== AI润色：与 Step1 相同但支持新 UI ==================
 void MainWindow::onBtnPolishClicked()
 {
     QString original = ui->textEditOriginal->toPlainText().trimmed();
-    if (original.isEmpty()) {
-        QMessageBox::warning(this, "提示", "左侧原文为空，请输入或选择一篇文章后再润色");
-        return;
-    }
-
-    // ---- 1. 保存左侧内容到 temp_in.txt (IPC 文件交换) ----
-    QFile inFile(m_tempInPath);
-    // 确保目录存在
-    QDir().mkpath(QFileInfo(m_tempInPath).absolutePath());
-    if (!inFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
-        QMessageBox::critical(this, "错误", "无法写入临时输入文件:\n" + m_tempInPath + "\n" + inFile.errorString());
-        return;
-    }
-    {
-        QTextStream ts(&inFile);
-        ts.setCodec("UTF-8");
-        ts << original;
-    }
-    inFile.close();
-    log(QString("[润色] 已写入 temp_in.txt (%1 字符) -> %2").arg(original.size()).arg(m_tempInPath));
-
-    // ---- 2. 解析 Python 脚本路径 ----
+    if (original.isEmpty()) { QMessageBox::warning(this,"提示","左侧原文为空"); return; }
+    QFile inFile(m_tempInPath); QDir().mkpath(QFileInfo(m_tempInPath).absolutePath());
+    if (!inFile.open(QIODevice::WriteOnly|QIODevice::Truncate|QIODevice::Text)) { QMessageBox::critical(this,"错误","无法写入 temp_in.txt"); return; }
+    { QTextStream ts(&inFile); ts.setCodec("UTF-8"); ts<<original; } inFile.close();
+    log(QString("[润色] 已写入 %1 字符").arg(original.size()));
     QString scriptPath = resolvePythonScript("python/automation/ai_polish.py");
-    // 回退兼容旧路径 python/ai_polish.py
-    if (!QFileInfo::exists(scriptPath)) {
-        scriptPath = resolvePythonScript("python/ai_polish.py");
-    }
-    if (!QFileInfo::exists(scriptPath)) {
-        // 最后尝试源码期相对路径
-        scriptPath = QDir::cleanPath(QDir::currentPath() + "/python/automation/ai_polish.py");
-        if (!QFileInfo::exists(scriptPath))
-            scriptPath = QDir::cleanPath(QDir::currentPath() + "/python/ai_polish.py");
-    }
-    if (!QFileInfo::exists(scriptPath)) {
-        QMessageBox::critical(this, "错误", "找不到 ai_polish.py 脚本\n已尝试路径:\n" + scriptPath);
-        log("[润色] 错误：找不到 Python 脚本 " + scriptPath);
-        return;
-    }
-
-    // 清理旧的输出文件
+    if (!QFileInfo::exists(scriptPath)) scriptPath = resolvePythonScript("python/ai_polish.py");
+    if (!QFileInfo::exists(scriptPath)) { QMessageBox::critical(this,"错误","找不到 ai_polish.py"); return; }
     QFile::remove(m_tempOutPath);
-
-    // ---- 3. QProcess 启动 Python ----
-    if (m_polishProcess && m_polishProcess->state() != QProcess::NotRunning) {
-        QMessageBox::information(this, "提示", "润色任务正在进行中，请稍候");
-        return;
-    }
-    if (m_polishProcess) {
-        m_polishProcess->deleteLater();
-    }
-    m_polishProcess = new QProcess(this);
-
-    // 关键：合并环境变量，设置 UTF-8
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("PYTHONIOENCODING", "utf-8");
-    m_polishProcess->setProcessEnvironment(env);
-    m_polishProcess->setProcessChannelMode(QProcess::MergedChannels);
-
-    connect(m_polishProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &MainWindow::onPolishFinished);
-    connect(m_polishProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError){
-        onPolishError(m_polishProcess->errorString());
-    });
-    connect(m_polishProcess, &QProcess::readyReadStandardOutput, this, [this]{
-        onPolishStdout(QString::fromUtf8(m_polishProcess->readAllStandardOutput()));
-    });
-    connect(m_polishProcess, &QProcess::readyReadStandardError, this, [this]{
-        onPolishStderr(QString::fromUtf8(m_polishProcess->readAllStandardError()));
-    });
-
-    QString pyExe = pythonExecutable();
-    QStringList args;
-    args << scriptPath << m_tempInPath << m_tempOutPath;
-
-    log(QString("[润色] 启动进程: %1 %2").arg(pyExe, args.join(" ")));
-    setPolishRunning(true);
-    updateStatus("AI润色中...");
-
+    if (m_polishProcess && m_polishProcess->state()!=QProcess::NotRunning) { QMessageBox::information(this,"提示","润色进行中…"); return; }
+    if (m_polishProcess) m_polishProcess->deleteLater();
+    m_polishProcess=new QProcess(this);
+    QProcessEnvironment env=QProcessEnvironment::systemEnvironment(); env.insert("PYTHONIOENCODING","utf-8");
+    m_polishProcess->setProcessEnvironment(env); m_polishProcess->setProcessChannelMode(QProcess::MergedChannels);
+    connect(m_polishProcess, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, &MainWindow::onPolishFinished);
+    connect(m_polishProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError){ onPolishError(m_polishProcess->errorString()); });
+    connect(m_polishProcess, &QProcess::readyReadStandardOutput, this, [this]{ onPolishStdout(QString::fromUtf8(m_polishProcess->readAllStandardOutput())); });
+    connect(m_polishProcess, &QProcess::readyReadStandardError, this, [this]{ onPolishStderr(QString::fromUtf8(m_polishProcess->readAllStandardError())); });
+    QString pyExe=pythonExecutable();
+    QStringList args; args<<scriptPath<<m_tempInPath<<m_tempOutPath;
+    // Step2：可选额外参数 --provider grok / --mock  (兼容旧脚本忽略未知参数)
+    // args << "--provider" << "grok";
+    log(QString("[润色] 启动: %1 %2").arg(pyExe, args.join(" ")));
+    setPolishRunning(true); updateStatus("AI润色中…");
     m_polishProcess->setWorkingDirectory(QFileInfo(scriptPath).absolutePath());
     m_polishProcess->start(pyExe, args);
-
-    if (!m_polishProcess->waitForStarted(5000)) {
-        setPolishRunning(false);
-        QString err = m_polishProcess->errorString();
-        QMessageBox::critical(this, "启动失败", "无法启动 Python 进程:\n" + pyExe + "\n" + err + "\n\n请检查 Python 是否在 PATH，或设置环境变量 PYTHON_EXE");
-        log("[润色] 启动失败: " + err);
-        return;
-    }
-    log(QString("[润色] 进程已启动 PID=%1").arg(m_polishProcess->processId()));
+    if (!m_polishProcess->waitForStarted(5000)) { setPolishRunning(false); QMessageBox::critical(this,"启动失败",m_polishProcess->errorString()); return; }
+    log(QString("[润色] PID=%1").arg(m_polishProcess->processId()));
 }
-
-void MainWindow::onPolishFinished(int exitCode, QProcess::ExitStatus status)
-{
-    Q_UNUSED(status)
-    setPolishRunning(false);
-
-    log(QString("[润色] 进程结束 exitCode=%1 status=%2").arg(exitCode).arg(int(status)));
-
-    if (exitCode != 0) {
-        QString errOut = m_polishProcess ? QString::fromUtf8(m_polishProcess->readAllStandardError()) : "";
-        QString stdOut = m_polishProcess ? QString::fromUtf8(m_polishProcess->readAllStandardOutput()) : "";
-        QMessageBox::warning(this, "润色失败", QString("Python 脚本异常退出 (code=%1)\n%2\n%3").arg(exitCode).arg(stdOut, errOut));
-        updateStatus("润色失败", 3000);
-        return;
-    }
-
-    // ---- 4. 读取 temp_out.txt 显示到右侧 ----
+void MainWindow::onPolishFinished(int exitCode, QProcess::ExitStatus status){
+    Q_UNUSED(status) setPolishRunning(false);
+    log(QString("[润色] 结束 code=%1").arg(exitCode));
+    if (exitCode!=0){ QMessageBox::warning(this,"润色失败",QString("退出码 %1").arg(exitCode)); updateStatus("润色失败",3000); return; }
     QFile outFile(m_tempOutPath);
-    if (!outFile.exists()) {
-        // 回退：尝试从 stdout 读取（若脚本走 stdout 输出）
-        QString stdOut = m_polishProcess ? QString::fromUtf8(m_polishProcess->readAllStandardOutput()).trimmed() : "";
-        if (!stdOut.isEmpty()) {
-            ui->textEditPolished->setPlainText(stdOut);
-            log("[润色] 未找到输出文件，已从 stdout 加载结果");
-            updateStatus("润色完成 (stdout)", 3000);
-            return;
-        }
-        QMessageBox::warning(this, "润色失败", "未找到输出文件:\n" + m_tempOutPath);
-        log("[润色] 失败：输出文件不存在");
-        updateStatus("润色失败：无输出文件", 3000);
-        return;
+    if (!outFile.exists()){
+        QString stdOut = m_polishProcess?QString::fromUtf8(m_polishProcess->readAllStandardOutput()).trimmed():"";
+        if(!stdOut.isEmpty()){ ui->textEditPolished->setPlainText(stdOut); updateStatus("润色完成(stdout)",3000); return; }
+        QMessageBox::warning(this,"失败","未找到输出文件"); return;
     }
-    if (!outFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QMessageBox::critical(this, "错误", "无法读取输出文件:\n" + m_tempOutPath);
-        return;
-    }
-    QTextStream ts(&outFile);
-    ts.setCodec("UTF-8");
-    QString polished = ts.readAll();
-    outFile.close();
-
+    if(!outFile.open(QIODevice::ReadOnly|QIODevice::Text)) return;
+    QTextStream ts(&outFile); ts.setCodec("UTF-8"); QString polished=ts.readAll(); outFile.close();
     ui->textEditPolished->setPlainText(polished);
-    log(QString("[润色] 成功，已加载 %1 字符到右侧编辑器").arg(polished.size()));
-    updateStatus("润色完成", 3000);
+    log(QString("[润色] 成功 %1 字符").arg(polished.size())); updateStatus("润色完成",3000);
 }
+void MainWindow::onPolishError(const QString &msg){ setPolishRunning(false); log("[润色] 错误: "+msg); QMessageBox::critical(this,"错误",msg); }
+void MainWindow::onPolishStdout(const QString &t){ if(!t.trimmed().isEmpty()) log("[Polish] "+t.trimmed().left(500)); }
+void MainWindow::onPolishStderr(const QString &t){ if(!t.trimmed().isEmpty()) log("[Polish] "+t.trimmed().left(500)); }
 
-void MainWindow::onPolishError(const QString &msg)
-{
-    setPolishRunning(false);
-    log("[润色] 进程错误: " + msg);
-    QMessageBox::critical(this, "进程错误", msg);
-    updateStatus("润色错误", 3000);
-}
-
-void MainWindow::onPolishStdout(const QString &text)
-{
-    if (!text.trimmed().isEmpty())
-        log("[Python stdout] " + text.trimmed().left(500));
-}
-
-void MainWindow::onPolishStderr(const QString &text)
-{
-    if (!text.trimmed().isEmpty())
-        log("[Python stderr] " + text.trimmed().left(500));
-}
-
-// ================== 核心流程：发布（Step1 预留） ==================
+// ================== 发布：Step2 真实 QProcess ==================
 void MainWindow::onBtnPublishClicked()
 {
     QString title = ui->lineEditTitle->text().trimmed();
     QString content = ui->textEditPolished->toPlainText().trimmed();
-    if (title.isEmpty()) {
-        QMessageBox::warning(this, "提示", "请输入标题");
-        ui->lineEditTitle->setFocus();
-        return;
-    }
-    if (content.isEmpty()) {
-        QMessageBox::warning(this, "提示", "润色后内容为空，无法发布");
-        return;
-    }
+    if (title.isEmpty()){ QMessageBox::warning(this,"提示","请输入标题"); ui->lineEditTitle->setFocus(); return; }
+    if (content.isEmpty()){ QMessageBox::warning(this,"提示","润色后内容为空"); return; }
+    if (title.size()<5) { if(QMessageBox::question(this,"确认","标题过短，是否继续？")!=QMessageBox::Yes) return; }
 
-    log(QString("[发布] 准备发布 标题=\"%1\" 内容%2字符").arg(title).arg(content.size()));
-    updateStatus("发布流程 (Step1 预留，未接 Playwright)");
+    // 写入 publish.json 供 Python 消费
+    QJsonObject o; o["title"]=title; o["content"]=content;
+    o["platform"]="toutiao"; o["timestamp"]=QDateTime::currentDateTime().toString(Qt::ISODate);
+    QDir().mkpath(QFileInfo(m_publishJsonPath).absolutePath());
+    QFile f(m_publishJsonPath);
+    if (!f.open(QIODevice::WriteOnly|QIODevice::Truncate)) { QMessageBox::critical(this,"错误","无法写入 publish.json"); return; }
+    f.write(QJsonDocument(o).toJson()); f.close();
+    log(QString("[发布] 已写入 publish.json 标题=%1 %2字").arg(title.left(20)).arg(content.size()));
 
-    // Step2 将接入：QProcess 启动 python/automation/publisher.py
-    /*
     QString script = resolvePythonScript("python/automation/publisher.py");
-    QString tmpPublish = QCoreApplication::applicationDirPath() + "/data/temp/publish.json";
-    // 将 title/content 写入 publish.json
-    QJsonObject obj; obj["title"]=title; obj["content"]=content;
-    QFile f(tmpPublish); f.open(...); f.write(QJsonDocument(obj).toJson()); f.close();
-    QProcess *pub = new QProcess(this);
-    pub->start(pythonExecutable(), {script, tmpPublish});
-    */
+    if (!QFileInfo::exists(script)) { QMessageBox::critical(this,"错误","找不到 publisher.py: "+script); return; }
+    if (m_publishProcess && m_publishProcess->state()!=QProcess::NotRunning) { QMessageBox::information(this,"提示","发布进行中…"); return; }
+    if (m_publishProcess) m_publishProcess->deleteLater();
+    m_publishProcess=new QProcess(this);
+    QProcessEnvironment env=QProcessEnvironment::systemEnvironment(); env.insert("PYTHONIOENCODING","utf-8");
+    m_publishProcess->setProcessEnvironment(env);
+    m_publishProcess->setProcessChannelMode(QProcess::MergedChannels);
+    connect(m_publishProcess, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, &MainWindow::onPublishFinished);
+    connect(m_publishProcess, &QProcess::readyReadStandardOutput, this, [this]{ log("[Publish] "+QString::fromUtf8(m_publishProcess->readAllStandardOutput()).trimmed().left(600)); });
+    connect(m_publishProcess, &QProcess::readyReadStandardError, this, [this]{ log("[Publish] "+QString::fromUtf8(m_publishProcess->readAllStandardError()).trimmed().left(600)); });
 
-    QMessageBox::information(this, "发布", "Step1 为骨架演示，发布自动化将在 Step2 接入 Playwright。\n\n当前标题与内容已就绪，可在日志区查看。");
+    QStringList args={script, "--input", m_publishJsonPath, "--dry-run"}; // 默认 dry-run，真实发布去掉 --dry-run
+    log(QString("[发布] 启动: %1 %2").arg(pythonExecutable(), args.join(" ")));
+    setPublishRunning(true); updateStatus("发布中… (dry-run)");
+    m_publishProcess->setWorkingDirectory(QFileInfo(script).absolutePath());
+    m_publishProcess->start(pythonExecutable(), args);
+    if (!m_publishProcess->waitForStarted(5000)) { setPublishRunning(false); QMessageBox::critical(this,"启动失败",m_publishProcess->errorString()); return; }
+}
+
+void MainWindow::onPublishFinished(int exitCode, QProcess::ExitStatus status)
+{
+    Q_UNUSED(status) setPublishRunning(false);
+    log(QString("[发布] 结束 code=%1").arg(exitCode));
+    if (exitCode==0){
+        Database::PublishRecord r;
+        r.id = QString::number(QDateTime::currentMSecsSinceEpoch());
+        r.title = ui->lineEditTitle->text().trimmed();
+        r.platform = "toutiao";
+        r.publishTime = QDateTime::currentDateTime();
+        r.success = true; r.message="dry-run success";
+        Database::instance().savePublishRecord(r);
+        updateStatus("发布完成 (dry-run)", 4000);
+        QMessageBox::information(this,"发布","已完成发布流程（当前为 dry-run 模拟）。\n去掉 --dry-run 参数即可真实发布。");
+    } else {
+        updateStatus("发布失败",3000);
+        QMessageBox::warning(this,"发布失败",QString("退出码 %1 请查看日志").arg(exitCode));
+    }
 }

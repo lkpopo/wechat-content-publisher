@@ -28,8 +28,14 @@ set(SOURCES
     src/ui/mainwindow.ui
     src/core/configmanager.cpp
     src/core/configmanager.h
+    src/core/database.cpp
+    src/core/database.h
+    src/core/article.h
     src/utils/processrunner.cpp
     src/utils/processrunner.h
+    src/utils/themeManager.cpp
+    src/utils/themeManager.h
+    resources/resources.qrc
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})

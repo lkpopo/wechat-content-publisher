@@ -1,8 +1,10 @@
-# IwanMoney Python 依赖
-# Step1 仅需标准库即可运行 Mock
-# Step2 启用 Playwright 后取消注释
+# IwanMoney Python 依赖 - Step2
+# 基础（Mock 模式无需额外依赖）
+# 真实自动化请安装：
+playwright>=1.44.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+requests>=2.31.0
 
-# playwright>=1.40.0
-# beautifulsoup4>=4.12.0
-# lxml>=4.9.0
-# requests>=2.31.0
+# 安装后执行: playwright install chromium
+# 可选：playwright install chrome (复用本机 Chrome)

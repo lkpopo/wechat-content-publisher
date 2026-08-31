@@ -14,15 +14,23 @@ SOURCES += \
     src/main.cpp \
     src/ui/mainwindow.cpp \
     src/core/configmanager.cpp \
-    src/utils/processrunner.cpp
+    src/core/database.cpp \
+    src/utils/processrunner.cpp \
+    src/utils/themeManager.cpp
 
 HEADERS += \
     src/ui/mainwindow.h \
     src/core/configmanager.h \
-    src/utils/processrunner.h
+    src/core/database.h \
+    src/core/article.h \
+    src/utils/processrunner.h \
+    src/utils/themeManager.h
 
 FORMS += \
     src/ui/mainwindow.ui
+
+RESOURCES += \
+    resources/resources.qrc
 
 INCLUDEPATH += \
     src \
