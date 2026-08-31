@@ -30,6 +30,9 @@ private slots:
     void onDeleteBlogger();
     void onBloggerContextMenu(const QPoint &pos);
 
+    // 快捷操作
+    void onBtnOpenArticlesDir();
+
     // Markdown
     void onMarkdownOriginalToggled(bool checked);
     void onMarkdownPolishedToggled(bool checked);
@@ -47,6 +50,9 @@ private:
     void setupConnections();
     void setupBloggerList();
     void setupUiDetails();
+
+    void updateWorkflowStep(int step);
+    void updateArticleStats();
 
     void setPolishRunning(bool running);
     void setCrawlRunning(bool running);

@@ -2,11 +2,74 @@
 * { font-family: "Microsoft YaHei UI", "HarmonyOS Sans SC", "Sarasa Gothic SC", "PingFang SC", "Segoe UI", sans-serif; text-rendering: optimizeLegibility; }
 QMainWindow { background: #0F172A; }
 #centralwidget { background: #0F172A; }
-#headerWidget { background: #1E293B; border: 1px solid #334155; border-radius: 12px; }
-#labelAppTitle { color: #F1F5F9; font-size: 15px; font-weight: 700; }
-#labelAppSubtitle { color: #94A3B8; font-size: 11px; }
-#btnTheme { background: #334155; border: 1px solid #475569; border-radius: 8px; color: #E2E8F0; }
-#btnTheme:hover { background: #475569; }
+#headerWidget {
+    background: #1E293B;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    margin: 2px 4px 6px 4px;
+}
+#labelAppIcon {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6366F1, stop:0.6 #4F46E5, stop:1 #7C3AED);
+    color: #FFFFFF;
+    border-radius: 10px;
+    font-size: 18px;
+    font-weight: 800;
+}
+#labelAppTitle { color: #F8FAFC; font-size: 15px; font-weight: 800; letter-spacing: -0.4px; }
+#labelAppSubtitle { color: #94A3B8; font-size: 11px; font-weight: 500; }
+#labelHeaderBadge {
+    background: #312E81;
+    color: #C7D2FE;
+    border: 1px solid #4338CA;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 700;
+}
+#workflowWidget {
+    background: #0F172A;
+    border: 1px solid #334155;
+    border-radius: 18px;
+    padding: 2px 8px;
+}
+#labelStatsBadge {
+    background: #0F172A;
+    color: #CBD5E1;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+#btnOpenArticlesDir {
+    background: #0F172A;
+    border: 1.5px solid #334155;
+    border-radius: 8px;
+    padding: 5px 12px;
+    color: #E2E8F0;
+    font-size: 11px;
+    font-weight: 600;
+}
+#btnOpenArticlesDir:hover {
+    background: #334155;
+    border-color: #475569;
+    color: #FFFFFF;
+}
+#btnOpenArticlesDir:pressed {
+    background: #1E293B;
+}
+#labelStatusDot {
+    color: #34D399;
+    font-size: 11px;
+    font-weight: 600;
+    background: #064E3B;
+    border: 1px solid #059669;
+    border-radius: 14px;
+    padding: 4px 10px;
+}
+#btnTheme { background: #334155; border: 1.5px solid #475569; border-radius: 8px; color: #E2E8F0; font-size: 11px; font-weight: 600; padding: 5px 12px; }
+#btnTheme:hover { background: #475569; color: #FFFFFF; }
+#btnTheme:pressed { background: #1E293B; }
 #leftPanel { background: #1E293B; border: 1px solid #334155; border-radius: 12px; }
 QLabel { color: #CBD5E1; }
 #labelTitle { color: #F1F5F9; }

@@ -43,6 +43,8 @@ playwright/.cache
 # Data / temp (保留结构，忽略内容)
 data/temp/*
 !data/temp/.gitkeep
+data/articles/*
+!data/articles/.gitkeep
 config/app_config.json
 *.db
 *.sqlite

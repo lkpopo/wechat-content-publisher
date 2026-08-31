@@ -8,6 +8,8 @@
 #include <QTextEdit>
 #include <QMenuBar>
 #include <QCalendarWidget>
+#include <QDesktopServices>
+#include <QUrl>
 
 #include <QDateTime>
 #include <QFile>
@@ -97,8 +99,24 @@ void MainWindow::setupUiDetails()
         w->setGraphicsEffect(eff);
     };
     if (ui->headerWidget) addShadow(ui->headerWidget, 20, 3);
+    if (ui->workflowWidget) addShadow(ui->workflowWidget, 12, 1);
     if (ui->btnTheme) ui->btnTheme->setText(ThemeManager::instance().isDark() ? "☀ 浅色" : "🌙 深色");
-    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 就绪");
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 待命中");
+
+    updateWorkflowStep(1);
+    updateArticleStats();
+
+    // 绑定富文本图片加载根目录
+    QString projectRoot = QDir::cleanPath(QCoreApplication::applicationDirPath() + "/../../");
+    if (!QDir(projectRoot + "/data").exists()) {
+        projectRoot = QDir::currentPath();
+    }
+    if (ui->textEditOriginal) {
+        ui->textEditOriginal->document()->setBaseUrl(QUrl::fromLocalFile(projectRoot + "/"));
+    }
+    if (ui->textEditPolished) {
+        ui->textEditPolished->document()->setBaseUrl(QUrl::fromLocalFile(projectRoot + "/"));
+    }
 
     // 博主列表右键菜单
     ui->listWidgetBloggers->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -155,6 +173,11 @@ void MainWindow::setupConnections()
     connect(ui->btnEditBlogger, &QPushButton::clicked, this, &MainWindow::onEditBlogger);
     connect(ui->btnDeleteBlogger, &QPushButton::clicked, this, &MainWindow::onDeleteBlogger);
 
+    // 快捷打开文章目录
+    if (ui->btnOpenArticlesDir) {
+        connect(ui->btnOpenArticlesDir, &QPushButton::clicked, this, &MainWindow::onBtnOpenArticlesDir);
+    }
+
     if (ui->btnClear) {
         connect(ui->btnClear, &QPushButton::clicked, this, [this]{
             // 退出 markdown 预览再清空
@@ -193,10 +216,15 @@ void MainWindow::setupConnections()
 void MainWindow::applyMarkdown(QTextEdit *edit, const QString &markdown, bool enable)
 {
     if (!edit) return;
+    QString projectRoot = QDir::cleanPath(QCoreApplication::applicationDirPath() + "/../../");
+    if (!QDir(projectRoot + "/data").exists()) {
+        projectRoot = QDir::currentPath();
+    }
+    edit->document()->setBaseUrl(QUrl::fromLocalFile(projectRoot + "/"));
+
     if (enable) {
         edit->setMarkdown(markdown);
         edit->setReadOnly(true);
-        edit->setStyleSheet(edit->styleSheet() + " QTextEdit { background:#FFFEF7; }");
     } else {
         edit->setPlainText(markdown);
         edit->setReadOnly(false);
@@ -229,6 +257,77 @@ void MainWindow::onMarkdownPolishedToggled(bool checked)
         applyMarkdown(ui->textEditPolished, m_polishedPlain, false);
         ui->btnMarkdownPolished->setText("MD 预览");
     }
+}
+
+// ================== 工作流与统计 ==================
+void MainWindow::updateWorkflowStep(int step)
+{
+    if (!ui->labelStep1 || !ui->labelStep2 || !ui->labelStep3) return;
+
+    QString baseStyle = "font-size:11px; font-weight:600; padding:4px 10px; border-radius:6px;";
+    QString arrowStyle = "color:#94A3B8; font-size:11px; font-weight:700;";
+    if (ui->labelStepArrow1) ui->labelStepArrow1->setStyleSheet(arrowStyle);
+    if (ui->labelStepArrow2) ui->labelStepArrow2->setStyleSheet(arrowStyle);
+
+    if (step <= 1) {
+        ui->labelStep1->setText("🔵 ① 采集文章");
+        ui->labelStep1->setStyleSheet(baseStyle + "background:#EEF2FF; color:#4338CA; border:1px solid #C7D2FE; font-weight:700;");
+        ui->labelStep2->setText("② AI润色");
+        ui->labelStep2->setStyleSheet(baseStyle + "background:transparent; color:#64748B; border:1px solid transparent;");
+        ui->labelStep3->setText("③ 头条发布");
+        ui->labelStep3->setStyleSheet(baseStyle + "background:transparent; color:#64748B; border:1px solid transparent;");
+    } else if (step == 2) {
+        ui->labelStep1->setText("✓ ① 采集完成");
+        ui->labelStep1->setStyleSheet(baseStyle + "background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0;");
+        ui->labelStep2->setText("🟣 ② AI润色中");
+        ui->labelStep2->setStyleSheet(baseStyle + "background:#F5F3FF; color:#6D28D9; border:1px solid #DDD6FE; font-weight:700;");
+        ui->labelStep3->setText("③ 头条发布");
+        ui->labelStep3->setStyleSheet(baseStyle + "background:transparent; color:#64748B; border:1px solid transparent;");
+    } else if (step >= 3) {
+        ui->labelStep1->setText("✓ ① 采集完成");
+        ui->labelStep1->setStyleSheet(baseStyle + "background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0;");
+        ui->labelStep2->setText("✓ ② 润色完成");
+        ui->labelStep2->setStyleSheet(baseStyle + "background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0;");
+        ui->labelStep3->setText("🟢 ③ 准备发布");
+        ui->labelStep3->setStyleSheet(baseStyle + "background:#ECFDF5; color:#047857; border:1px solid #6EE7B7; font-weight:700;");
+    }
+}
+
+void MainWindow::updateArticleStats()
+{
+    int count = 0;
+    QString articlesDir = QCoreApplication::applicationDirPath() + "/data/articles";
+    QDir dir(articlesDir);
+    if (!dir.exists()) {
+        articlesDir = QDir::currentPath() + "/data/articles";
+        dir.setPath(articlesDir);
+    }
+    if (dir.exists()) {
+        QStringList bloggers = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QString &b : bloggers) {
+            QDir bDir(dir.filePath(b));
+            count += bDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot).size();
+        }
+    }
+    if (count == 0 && ui->listWidgetArticles) {
+        for (int i = 0; i < ui->listWidgetArticles->count(); ++i) {
+            if (!ui->listWidgetArticles->item(i)->data(Qt::UserRole).toString().isEmpty()) count++;
+        }
+    }
+    if (ui->labelStatsBadge) {
+        ui->labelStatsBadge->setText(QString("📚 文章库: %1 篇").arg(count));
+    }
+}
+
+void MainWindow::onBtnOpenArticlesDir()
+{
+    QString dirPath = QCoreApplication::applicationDirPath() + "/data/articles";
+    if (!QDir(dirPath).exists()) {
+        dirPath = QDir::currentPath() + "/data/articles";
+    }
+    QDir().mkpath(dirPath);
+    QDesktopServices::openUrl(QUrl::fromLocalFile(dirPath));
+    log("[系统] 已打开本地文章库: " + dirPath);
 }
 
 // ================== 工具 ==================
@@ -350,17 +449,23 @@ void MainWindow::onBloggerSelectionChanged()
     if (id.isEmpty()) return; // hint 项
     QString platform = item->data(Qt::UserRole + 1).toString();
     log(QString("[筛选] 选中 %1 (%2)").arg(id, platform));
-    auto arts = Database::instance().loadArticles(id, 30);
+    auto arts = Database::instance().loadArticles(id, 50);
     if (!arts.isEmpty()) {
+        std::sort(arts.begin(), arts.end(), [](const Article &x, const Article &y){
+            return x.publishTime > y.publishTime;
+        });
         ui->listWidgetArticles->clear();
         for (auto &a : arts) {
-            auto *it = new QListWidgetItem(QString("[%1] %2").arg(a.publishTime.toString("MM-dd"), a.title));
+            QString imgBadge = a.cover.isEmpty() ? "" : " 🖼️";
+            QString timeStr = a.publishTime.isValid() ? a.publishTime.toString("yyyy-MM-dd") : "";
+            auto *it = new QListWidgetItem(QString("[%1]%2 %3").arg(timeStr, imgBadge, a.title));
             it->setData(Qt::UserRole, a.content);
             it->setData(Qt::UserRole+1, a.id);
+            it->setData(Qt::UserRole+2, a.url);
             it->setToolTip(a.url + "\n" + a.publishTime.toString(Qt::ISODate));
             ui->listWidgetArticles->addItem(it);
         }
-        log(QString("[DB] 已加载 %1 篇历史文章（按时间倒序）").arg(arts.size()));
+        log(QString("[DB] 已加载 %1 篇历史文章（按时间降序排列）").arg(arts.size()));
         return;
     }
     // 无缓存时提示而非直接 Mock
@@ -387,16 +492,24 @@ void MainWindow::onArticleClicked(QListWidgetItem *item)
     if (!item) return;
     QString content = item->data(Qt::UserRole).toString();
     if (content.isEmpty()) return; // hint item
-    // 若处于 Markdown 预览，先退出
-    if (m_originalIsMarkdown) { ui->btnMarkdownOriginal->setChecked(false); }
-    if (m_polishedIsMarkdown) { ui->btnMarkdownPolished->setChecked(false); }
+
     m_originalPlain = content;
-    ui->textEditOriginal->setPlainText(content);
+    m_originalIsMarkdown = true;
+    applyMarkdown(ui->textEditOriginal, m_originalPlain, true);
+    if (ui->btnMarkdownOriginal) {
+        ui->btnMarkdownOriginal->blockSignals(true);
+        ui->btnMarkdownOriginal->setChecked(true);
+        ui->btnMarkdownOriginal->setText("编辑");
+        ui->btnMarkdownOriginal->blockSignals(false);
+    }
+
     // 清空右侧但保留 markdown 状态关闭
     m_polishedPlain.clear();
     ui->textEditPolished->clear();
     ui->lineEditTitle->setText(item->text().left(50).replace(QRegularExpression("^\\[.*?\\]\\s*"), ""));
-    log("[文章] 已加载: " + item->text().left(30));
+    log("[文章] 已加载图文排版: " + item->text().left(30));
+    updateWorkflowStep(2);
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 文章已就绪，可AI润色");
 }
 
 // ================== 爬取 ==================
@@ -420,6 +533,8 @@ void MainWindow::onBtnCrawlClicked()
 
     log(QString("[爬取] %1 (%2) %3~%4").arg(bloggerId, platform, start.toString(Qt::ISODate), end.toString(Qt::ISODate)));
     updateStatus("正在抓取…"); setCrawlRunning(true);
+    updateWorkflowStep(1);
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 正在采集文章...");
     QFile::remove(m_crawlResultPath);
 
     if (m_crawlProcess) m_crawlProcess->deleteLater();
@@ -433,8 +548,8 @@ void MainWindow::onBtnCrawlClicked()
     connect(m_crawlProcess, &QProcess::readyReadStandardOutput, this, [this]{ onCrawlStdout(QString::fromUtf8(m_crawlProcess->readAllStandardOutput())); });
     connect(m_crawlProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError){ log("[爬取] 进程错误: "+m_crawlProcess->errorString()); setCrawlRunning(false); });
 
-    // 仅微信，默认尝试真实抓取（sogou），失败自动回退 Mock（crawler 内部已处理）
-    QStringList args = {script, "--blogger", bloggerId, "--platform", platform, "--start", start.toString("yyyy-MM-dd"), "--end", end.toString("yyyy-MM-dd"), "--output", m_crawlResultPath, "--real"};
+    // 传入 --limit 15 解除篇数限制，支持真实爬取
+    QStringList args = {script, "--blogger", bloggerId, "--platform", platform, "--start", start.toString("yyyy-MM-dd"), "--end", end.toString("yyyy-MM-dd"), "--output", m_crawlResultPath, "--limit", "15", "--real"};
     m_crawlProcess->setWorkingDirectory(QFileInfo(script).absolutePath());
     m_crawlProcess->start(pythonExecutable(), args);
     if (!m_crawlProcess->waitForStarted(5000)) {
@@ -456,6 +571,9 @@ void MainWindow::onCrawlFinished(int exitCode, QProcess::ExitStatus status)
         updateStatus("抓取失败",3000); return;
     }
     refreshArticleListFromJson(m_crawlResultPath);
+    updateWorkflowStep(2);
+    updateArticleStats();
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 采集完成，进入润色");
 }
 
 void MainWindow::refreshArticleListFromJson(const QString &jsonPath)
@@ -478,8 +596,17 @@ void MainWindow::refreshArticleListFromJson(const QString &jsonPath)
         auto o=v.toObject();
         Article a; a.id=o["id"].toString(); a.title=o["title"].toString(); a.content=o["content"].toString();
         a.platform=o["platform"].toString(); a.bloggerId=o["blogger_id"].toString();
-        a.publishTime=QDateTime::fromString(o["publish_time"].toString(), Qt::ISODate);
+        
+        QString ptStr = o["publish_time"].toString();
+        a.publishTime = QDateTime::fromString(ptStr, Qt::ISODate);
+        if (!a.publishTime.isValid()) {
+            a.publishTime = QDateTime::fromString(ptStr, "yyyy-MM-dd HH:mm:ss");
+        }
+        if (!a.publishTime.isValid()) {
+            a.publishTime = QDateTime::fromString(ptStr, "yyyy-MM-dd");
+        }
         if (!a.publishTime.isValid()) a.publishTime=QDateTime::currentDateTime();
+
         a.url=o["url"].toString(); a.cover=o["cover"].toString();
         for(int i=0;i<ui->listWidgetBloggers->count();++i){
             auto *it=ui->listWidgetBloggers->item(i);
@@ -487,18 +614,31 @@ void MainWindow::refreshArticleListFromJson(const QString &jsonPath)
         }
         articles.append(a);
     }
+
+    // 确保按发布时间从新到旧严格倒序排序
+    std::sort(articles.begin(), articles.end(), [](const Article &x, const Article &y){
+        return x.publishTime > y.publishTime;
+    });
+
     Database::instance().saveArticles(articles);
     ui->listWidgetArticles->clear();
     for (auto &a: articles){
-        auto *it=new QListWidgetItem(QString("[%1] %2").arg(a.publishTime.toString("MM-dd"), a.title));
+        QString imgBadge = a.cover.isEmpty() ? "" : " 🖼️";
+        QString timeStr = a.publishTime.isValid() ? a.publishTime.toString("yyyy-MM-dd") : "";
+        auto *it=new QListWidgetItem(QString("[%1]%2 %3").arg(timeStr, imgBadge, a.title));
         it->setData(Qt::UserRole, a.content);
         it->setData(Qt::UserRole+1, a.id);
         it->setData(Qt::UserRole+2, a.url);
-        it->setToolTip(QString("%1 · %2\n%3").arg(a.platform, a.publishTime.toString("yyyy-MM-dd"), a.url));
+        it->setToolTip(QString("%1 · %2\n%3").arg(a.platform, a.publishTime.toString("yyyy-MM-dd HH:mm:ss"), a.url));
         ui->listWidgetArticles->addItem(it);
     }
-    log(QString("[爬取] 成功 %1 篇 (mode=%2)，已入库").arg(count).arg(mode.isEmpty()?"mock":mode));
-    updateStatus(QString("抓取完成 %1 篇").arg(count), 4000);
+    // 默认选中第一篇最新文章并自动加载图文预览
+    if (ui->listWidgetArticles->count() > 0) {
+        ui->listWidgetArticles->setCurrentRow(0);
+        onArticleClicked(ui->listWidgetArticles->item(0));
+    }
+    log(QString("[爬取] 成功 %1 篇 (已按发布时间降序入库)").arg(articles.size()));
+    updateStatus(QString("抓取完成 %1 篇（最新文章已置顶）").arg(articles.size()), 4000);
 }
 
 // ================== AI润色 ==================
@@ -528,6 +668,8 @@ void MainWindow::onBtnPolishClicked()
     QStringList args; args<<scriptPath<<m_tempInPath<<m_tempOutPath;
     log(QString("[润色] 启动: %1 %2").arg(pyExe, args.join(" ")));
     setPolishRunning(true); updateStatus("AI润色中…");
+    updateWorkflowStep(2);
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 正在AI润色...");
     m_polishProcess->setWorkingDirectory(QFileInfo(scriptPath).absolutePath());
     m_polishProcess->start(pyExe, args);
     if (!m_polishProcess->waitForStarted(5000)) { setPolishRunning(false); QMessageBox::critical(this,"启动失败",m_polishProcess->errorString()); return; }
@@ -558,6 +700,8 @@ void MainWindow::onPolishFinished(int exitCode, QProcess::ExitStatus status){
         log("[润色] 检测到 Markdown 语法，可点击 MD 预览查看渲染");
     }
     log(QString("[润色] 成功 %1 字符").arg(polished.size())); updateStatus("润色完成",3000);
+    updateWorkflowStep(3);
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 润色完成，准备发布");
 }
 void MainWindow::onPolishError(const QString &msg){ setPolishRunning(false); log("[润色] 错误: "+msg); QMessageBox::critical(this,"错误",msg); }
 void MainWindow::onPolishStdout(const QString &t){ if(!t.trimmed().isEmpty()) log("[Polish] "+t.trimmed().left(500)); }
@@ -572,6 +716,9 @@ void MainWindow::onBtnPublishClicked()
     if (title.isEmpty()){ QMessageBox::warning(this,"提示","请输入标题"); ui->lineEditTitle->setFocus(); return; }
     if (content.isEmpty()){ QMessageBox::warning(this,"提示","润色后内容为空"); return; }
     if (title.size()<5) { if(QMessageBox::question(this,"确认","标题过短，是否继续？")!=QMessageBox::Yes) return; }
+
+    updateWorkflowStep(3);
+    if (ui->labelStatusDot) ui->labelStatusDot->setText("● 正在发布到头条...");
 
     QJsonObject o; o["title"]=title; o["content"]=content;
     o["platform"]="toutiao"; o["timestamp"]=QDateTime::currentDateTime().toString(Qt::ISODate);
@@ -614,9 +761,11 @@ void MainWindow::onPublishFinished(int exitCode, QProcess::ExitStatus status)
         r.success = true; r.message="dry-run success";
         Database::instance().savePublishRecord(r);
         updateStatus("发布完成 (dry-run)", 4000);
+        if (ui->labelStatusDot) ui->labelStatusDot->setText("● 发布完成");
         QMessageBox::information(this,"发布","已完成发布流程（当前为 dry-run 模拟）。\n去掉 --dry-run 参数即可真实发布。");
     } else {
         updateStatus("发布失败",3000);
+        if (ui->labelStatusDot) ui->labelStatusDot->setText("● 发布失败");
         QMessageBox::warning(this,"发布失败",QString("退出码 %1 请查看日志").arg(exitCode));
     }
 }

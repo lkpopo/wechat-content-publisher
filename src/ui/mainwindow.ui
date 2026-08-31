@@ -18,61 +18,123 @@
     <!-- Header Bar -->
     <item>
      <widget class="QWidget" name="headerWidget">
-      <property name="minimumHeight"><number>52</number></property>
-      <property name="maximumHeight"><number>52</number></property>
+      <property name="minimumHeight"><number>64</number></property>
+      <property name="maximumHeight"><number>64</number></property>
       <layout class="QHBoxLayout" name="hlHeader">
-       <property name="spacing"><number>10</number></property>
-       <property name="leftMargin"><number>14</number></property>
-       <property name="rightMargin"><number>14</number></property>
+       <property name="spacing"><number>12</number></property>
+       <property name="leftMargin"><number>16</number></property>
+       <property name="topMargin"><number>8</number></property>
+       <property name="rightMargin"><number>16</number></property>
+       <property name="bottomMargin"><number>8</number></property>
+       <!-- Left Brand Area -->
        <item>
         <widget class="QLabel" name="labelAppIcon">
-         <property name="text"><string>◈</string></property>
-         <property name="minimumWidth"><number>36</number></property>
-         <property name="maximumWidth"><number>36</number></property>
-         <property name="minimumHeight"><number>36</number></property>
-         <property name="maximumHeight"><number>36</number></property>
+         <property name="text"><string>✦</string></property>
+         <property name="minimumWidth"><number>40</number></property>
+         <property name="maximumWidth"><number>40</number></property>
+         <property name="minimumHeight"><number>40</number></property>
+         <property name="maximumHeight"><number>40</number></property>
          <property name="alignment"><set>Qt::AlignCenter</set></property>
-         <property name="styleSheet"><string notr="true">background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #6366F1, stop:1 #8B5CF6); color:white; border-radius:8px; font-size:18px; font-weight:700;</string></property>
         </widget>
        </item>
        <item>
         <layout class="QVBoxLayout" name="vlHeaderTitle">
-         <property name="spacing"><number>1</number></property>
+         <property name="spacing"><number>2</number></property>
          <item>
           <widget class="QLabel" name="labelAppTitle">
-           <property name="text"><string>IwanMoney</string></property>
+           <property name="text"><string>IwanMoney Studio</string></property>
           </widget>
          </item>
          <item>
           <widget class="QLabel" name="labelAppSubtitle">
-           <property name="text"><string>自媒体内容搬运 · AI润色 · 一键发布</string></property>
+           <property name="text"><string>自媒体内容采集 · 智能润色 · 一键发布</string></property>
           </widget>
          </item>
         </layout>
        </item>
        <item>
         <widget class="QLabel" name="labelHeaderBadge">
-         <property name="text"><string>v2.0 · Step2</string></property>
-         <property name="styleSheet"><string notr="true">background:#EEF2FF; color:#4338CA; border:1px solid #C7D2FE; border-radius:6px; padding:3px 8px; font-size:10px; font-weight:600;</string></property>
+         <property name="text"><string>PRO v2.5</string></property>
         </widget>
        </item>
        <item>
-        <spacer name="hSpacerHeader">
+        <spacer name="hSpacerWorkflowLeft">
          <property name="orientation"><enum>Qt::Horizontal</enum></property>
-         <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+         <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
         </spacer>
+       </item>
+       <!-- Center Workflow Stepper Pipeline -->
+       <item>
+        <widget class="QWidget" name="workflowWidget">
+         <layout class="QHBoxLayout" name="hlWorkflow">
+          <property name="spacing"><number>8</number></property>
+          <property name="leftMargin"><number>12</number></property>
+          <property name="topMargin"><number>4</number></property>
+          <property name="rightMargin"><number>12</number></property>
+          <property name="bottomMargin"><number>4</number></property>
+          <item>
+           <widget class="QLabel" name="labelStep1">
+            <property name="text"><string>① 采集文章</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelStepArrow1">
+            <property name="text"><string>➔</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelStep2">
+            <property name="text"><string>② AI润色</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelStepArrow2">
+            <property name="text"><string>➔</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelStep3">
+            <property name="text"><string>③ 头条发布</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="hSpacerWorkflowRight">
+         <property name="orientation"><enum>Qt::Horizontal</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+        </spacer>
+       </item>
+       <!-- Right Action and Status Area -->
+       <item>
+        <widget class="QLabel" name="labelStatsBadge">
+         <property name="text"><string>📚 文章库: 0 篇</string></property>
+         <property name="toolTip"><string>本地已收录文章数量</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnOpenArticlesDir">
+         <property name="text"><string>📂 本地文章</string></property>
+         <property name="toolTip"><string>在文件资源管理器中打开下载的文章与图片目录</string></property>
+         <property name="minimumHeight"><number>32</number></property>
+        </widget>
        </item>
        <item>
         <widget class="QLabel" name="labelStatusDot">
          <property name="text"><string>● 就绪</string></property>
-         <property name="styleSheet"><string notr="true">color:#10B981; font-size:11px; font-weight:600;</string></property>
         </widget>
        </item>
        <item>
         <widget class="QPushButton" name="btnTheme">
          <property name="text"><string>🌙 深色</string></property>
          <property name="toolTip"><string>切换深/浅色主题</string></property>
-         <property name="minimumHeight"><number>30</number></property>
+         <property name="minimumHeight"><number>32</number></property>
         </widget>
        </item>
       </layout>
