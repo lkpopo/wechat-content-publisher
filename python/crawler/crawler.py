@@ -29,19 +29,24 @@ class BaseCrawler:
 
 def mock_articles(blogger_id: str, platform: str, start: str, end: str):
     # 博主专属题库 - 让不同博主抓到的内容明显不同，解决“不是该博主内容”的体感
+    # 重点：ifanr 爱范儿
     blogger_specific = {
         "wechat_li_yongle": ["张朝阳的物理课有硬伤？李永乐这样讲相对论", "量子纠缠到底能否超光速？", "高考数学压轴题这样拆解", "AI 能否替代老师？"],
         "wechat_banfo": ["奶茶店的暴利陷阱：加盟商为何血本无归", "预制菜背后的资本游戏", "年轻人为何不再相信消费主义", "财经科普：美联储加息如何影响你"],
         "weibo_leijun": ["小米汽车 SU7 首测：雷总回应 3 大争议", "从 0 到 100 亿：小米的供应链思考", "智能硬件的下一站：AIoT", "雷军：创业最难的是坚持"],
         "xhs_food_001": ["周末探店：人均80吃到扶墙出的宝藏小馆", "15分钟快手菜：打工人晚餐合集", "烘焙翻车现场：戚风蛋糕不塌陷秘籍"],
         "mock_001": ["AI 颠覆内容创作的 5 个真相","为什么你的公众号阅读量上不去？","深度：自媒体搬运的合规边界"],
+        "ifanr": ["爱范儿早报：苹果发布会前瞻", "AI 硬件复盘：谁在定义下一代交互", "商业观察：微信小店的新机会", "科技周报：大模型价格战"],
+        "wechat_ifanr": ["爱范儿早报：苹果发布会前瞻", "AI 硬件复盘：谁在定义下一代交互", "商业观察：微信小店的新机会", "科技周报：大模型价格战"],
     }
     # 若命中专属，否则按平台通用
     pool = blogger_specific.get(blogger_id)
     if not pool:
-        # 尝试按名称关键字匹配
+        # 尝试按名称关键字匹配（优先 ifanr）
         low = blogger_id.lower()
-        if "yongle" in low or "李永乐" in low:
+        if "ifanr" in low or "爱范" in low:
+            pool = blogger_specific["ifanr"]
+        elif "yongle" in low or "李永乐" in low:
             pool = blogger_specific["wechat_li_yongle"]
         elif "banfo" in low or "半佛" in low:
             pool = blogger_specific["wechat_banfo"]
@@ -77,7 +82,16 @@ def mock_articles(blogger_id: str, platform: str, start: str, end: str):
         pub_dt = s_dt + timedelta(days=rand_days, hours=rand_hours)
         pub = pub_dt.isoformat()
         # 博主专属正文模板
-        if "wechat_li_yongle" in blogger_id or "yongle" in blogger_id.lower():
+        if "ifanr" in blogger_id.lower():
+            body = (
+                f"ifanr 爱范儿 · 《{title}》\n\n"
+                f"导语：{title} 背后，科技与商业的交叉点在哪里？爱范儿团队拆解：\n\n"
+                f"1. 现场：我们在发布会现场看到……产品细节、定价与供应链信号。\n\n"
+                f"2. 分析：对比往年数据与行业趋势，这次更新的核心是 AI 能力与生态协同，而非单纯硬件堆料。\n\n"
+                f"3. 观点：对于普通用户，是否值得升级？我们给出 3 个判断维度：刚需、预算、生态依赖。\n\n"
+                f"结语：科技不应是参数竞赛，而是体验与效率的提升。关注爱范儿，后台回复“{title[:6]}”获取完整报告。\n"
+            )
+        elif "wechat_li_yongle" in blogger_id or "yongle" in blogger_id.lower():
             body = (
                 f"大家好，我是李永乐。今天聊聊《{title}》。\n\n"
                 f"我们先看一个具体的例子：假设……（此处为 {blogger_id} 的物理/数学视角拆解，含公式与生活类比）。\n\n"
@@ -154,39 +168,119 @@ class WechatCrawler(BaseCrawler):
         return mock_articles(blogger_id, self.platform, start, end)
 
     def crawl_real(self, blogger_id, start, end):
-        """尝试搜狗微信搜索 - 需 playwright，且搜狗有反爬，可能仅作演示"""
-        from playwright.sync_api import sync_playwright
-        keyword = blogger_id.replace("wechat_","").replace("_"," ")
+        """真实抓取：优先 requests 搜狗，失败则 Playwright，适配 ifanr"""
+        keyword = blogger_id.replace("wechat_","").replace("_"," ").strip()
+        # 对 ifanr 特殊处理：用爱范儿作为关键词效果更好
+        if "ifanr" in blogger_id.lower():
+            keyword = "爱范儿 ifanr"
         print(f"[crawler][wechat] 真实模式 关键词={keyword}", file=sys.stderr)
+        # 1) 尝试 requests + bs4
+        try:
+            articles = self._crawl_sogou_requests(keyword, blogger_id, timeout=10)
+            if articles:
+                print(f"[crawler][wechat] requests 成功 {len(articles)} 篇", file=sys.stderr)
+                return articles
+        except Exception as e:
+            print(f"[crawler][wechat] requests 失败: {e}", file=sys.stderr)
+        # 2) 回退 Playwright
+        try:
+            from playwright.sync_api import sync_playwright
+            articles=[]
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+                page = browser.new_page()
+                page.goto(f"https://weixin.sogou.com/weixin?type=2&query={keyword}", wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(2000)
+                items = page.locator("ul.news-list li").all()[:5]
+                for idx, it in enumerate(items):
+                    try:
+                        title = it.locator("h3 a").first.inner_text(timeout=2000).strip()
+                        url = it.locator("h3 a").first.get_attribute("href") or ""
+                        snippet = it.locator("p.txt-info").first.inner_text(timeout=2000) if it.locator("p.txt-info").count() else ""
+                        articles.append({
+                            "id": f"{blogger_id}_real_{idx}",
+                            "title": title or f"微信文章 {idx}",
+                            "platform": "wechat",
+                            "blogger_id": blogger_id,
+                            "publish_time": (datetime.now()-timedelta(days=idx)).isoformat(),
+                            "content": f"{title}\n\n{snippet}\n\n[真实抓取 via 搜狗微信] {url}",
+                            "url": url,
+                            "cover": "",
+                        })
+                    except Exception:
+                        continue
+                browser.close()
+            if articles:
+                return articles
+        except Exception as e:
+            print(f"[crawler][wechat] playwright 失败: {e}", file=sys.stderr)
+        raise RuntimeError("真实抓取均未获取到数据，已回退 Mock")
+
+    def _crawl_sogou_requests(self, keyword: str, blogger_id: str, timeout=10):
+        import requests
+        from bs4 import BeautifulSoup
+        import urllib.parse
+        q = urllib.parse.quote(keyword)
+        url = f"https://weixin.sogou.com/weixin?type=2&query={q}&ie=utf8"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://weixin.sogou.com/",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        }
+        print(f"[crawler] requests GET {url}", file=sys.stderr)
+        r = requests.get(url, headers=headers, timeout=timeout)
+        if r.status_code != 200:
+            raise RuntimeError(f"搜狗返回 {r.status_code}")
+        # 搜狗可能返回腾讯防水墙，需要检测
+        if "搜狗" not in r.text and "weixin" not in r.text.lower():
+            # 可能是验证码页
+            if "验证码" in r.text or "antispider" in r.text.lower():
+                raise RuntimeError("搜狗反爬/验证码")
+        soup = BeautifulSoup(r.text, "lxml")
+        items = soup.select("ul.news-list li")
+        if not items:
+            # 尝试另一种结构
+            items = soup.select(".news-box")
         articles=[]
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-            page = browser.new_page()
-            # 搜狗微信
-            page.goto(f"https://weixin.sogou.com/weixin?type=2&query={keyword}", wait_until="domcontentloaded", timeout=20000)
-            page.wait_for_timeout(2000)
-            # 抓取前 5 条
-            items = page.locator("ul.news-list li").all()[:5]
-            for idx, it in enumerate(items):
-                try:
-                    title = it.locator("h3 a").first.inner_text(timeout=2000).strip()
-                    url = it.locator("h3 a").first.get_attribute("href") or ""
-                    snippet = it.locator("p.txt-info").first.inner_text(timeout=2000) if it.locator("p.txt-info").count() else ""
-                    articles.append({
-                        "id": f"{blogger_id}_real_{idx}",
-                        "title": title or f"微信文章 {idx}",
-                        "platform": "wechat",
-                        "blogger_id": blogger_id,
-                        "publish_time": (datetime.now()-timedelta(days=idx)).isoformat(),
-                        "content": f"{title}\n\n{snippet}\n\n[真实抓取 via 搜狗微信] {url}",
-                        "url": url,
-                        "cover": "",
-                    })
-                except Exception:
+        for idx, li in enumerate(items[:6]):
+            try:
+                a = li.select_one("h3 a, .txt-box a, h4 a")
+                if not a:
                     continue
-            browser.close()
-        if not articles:
-            raise RuntimeError("搜狗未抓到数据")
+                title = a.get_text(strip=True)
+                href = a.get("href") or ""
+                # 搜狗链接是跳转，需解码
+                # 简化：直接用跳转链接，前端可打开
+                snippet_el = li.select_one("p.txt-info, .txt-info, .s-p3")
+                snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+                # 时间
+                time_el = li.select_one(".s-p span, .s-p")
+                pub_str = time_el.get_text(strip=True) if time_el else ""
+                # 尝试解析时间，否则用 now
+                pub = datetime.now().isoformat()
+                if time_el:
+                    # 常见格式如 "2024-08-30" 或 "昨天"
+                    m = re.search(r"\d{4}-\d{2}-\d{2}", pub_str)
+                    if m:
+                        try:
+                            pub = datetime.strptime(m.group(0), "%Y-%m-%d").isoformat()
+                        except Exception:
+                            pass
+                if not title:
+                    continue
+                articles.append({
+                    "id": f"{blogger_id}_real_{idx}_{int(time.time())%10000}",
+                    "title": title,
+                    "platform": "wechat",
+                    "blogger_id": blogger_id,
+                    "publish_time": pub,
+                    "content": f"{title}\n\n{snippet}\n\n[真实抓取 via 搜狗] {href}\n*注：搜狗跳转链接，需在浏览器打开查看原文。*",
+                    "url": href,
+                    "cover": "",
+                })
+            except Exception as e:
+                print(f"[crawler] 解析条目失败: {e}", file=sys.stderr)
+                continue
         return articles
 
 class WeiboCrawler(BaseCrawler):

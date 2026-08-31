@@ -2,45 +2,42 @@
 <ui version="4.0">
  <class>BloggerDialog</class>
  <widget class="QDialog" name="BloggerDialog">
-  <property name="geometry"><rect><x>0</x><y>0</y><width>460</width><height>320</height></rect></property>
-  <property name="windowTitle"><string>博主</string></property>
+  <property name="geometry"><rect><x>0</x><y>0</y><width>420</width><height>260</height></rect></property>
+  <property name="windowTitle"><string>微信公众号</string></property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="spacing"><number>12</number></property>
-   <property name="leftMargin"><number>16</number></property>
-   <property name="topMargin"><number>16</number></property>
-   <property name="rightMargin"><number>16</number></property>
-   <property name="bottomMargin"><number>16</number></property>
+   <property name="leftMargin"><number>18</number></property>
+   <property name="topMargin"><number>18</number></property>
+   <property name="rightMargin"><number>18</number></property>
+   <property name="bottomMargin"><number>18</number></property>
    <item>
     <widget class="QLabel" name="labelTitle">
-     <property name="text"><string>添加 / 编辑博主</string></property>
-     <property name="styleSheet"><string notr="true">font-size:14px; font-weight:700; color:#0F172A;</string></property>
+     <property name="text"><string>添加微信公众号</string></property>
+     <property name="styleSheet"><string notr="true">font-size:15px; font-weight:700; color:#0F172A;</string></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="labelDesc">
+     <property name="text"><string>输入微信号（如 ifanr）与显示名称，系统将按该公众号抓取文章。</string></property>
+     <property name="wordWrap"><bool>true</bool></property>
+     <property name="styleSheet"><string notr="true">color:#64748B; font-size:11px;</string></property>
     </widget>
    </item>
    <item>
     <layout class="QFormLayout" name="formLayout">
-     <property name="spacing"><number>10</number></property>
+     <property name="spacing"><number>12</number></property>
      <property name="labelAlignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
-     <item row="0" column="0"><widget class="QLabel" name="labelName"><property name="text"><string>名称 *</string></property></widget></item>
-     <item row="0" column="1"><widget class="QLineEdit" name="editName"><property name="placeholderText"><string>如 李永乐老师</string></property></widget></item>
-     <item row="1" column="0"><widget class="QLabel" name="labelPlatform"><property name="text"><string>平台 *</string></property></widget></item>
-     <item row="1" column="1"><widget class="QComboBox" name="comboPlatform"/></item>
-     <item row="2" column="0"><widget class="QLabel" name="labelId"><property name="text"><string>ID *</string></property></widget></item>
-     <item row="2" column="1"><widget class="QLineEdit" name="editId"><property name="placeholderText"><string>自动生成，可自定义</string></property></widget></item>
-     <item row="3" column="0"><widget class="QLabel" name="labelUrl"><property name="text"><string>主页链接</string></property></widget></item>
-     <item row="3" column="1"><widget class="QLineEdit" name="editUrl"><property name="placeholderText"><string>可选，https://...</string></property></widget></item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="hlVerify">
-     <item><widget class="QPushButton" name="btnVerify"><property name="text"><string>🔍 校验真实性</string></property><property name="minimumHeight"><number>32</number></property><property name="styleSheet"><string notr="true">background:#6366F1; color:white; border-radius:8px; font-weight:600; padding:6px 12px;</string></property></widget></item>
-     <item><widget class="QLabel" name="labelVerifyStatus"><property name="text"><string>未验证</string></property><property name="styleSheet"><string notr="true">color:#64748B; font-size:11px;</string></property></widget></item>
+     <item row="0" column="0"><widget class="QLabel" name="labelId"><property name="text"><string>微信号 *</string></property></widget></item>
+     <item row="0" column="1"><widget class="QLineEdit" name="editId"><property name="placeholderText"><string>如 ifanr（公众号原始ID）</string></property></widget></item>
+     <item row="1" column="0"><widget class="QLabel" name="labelName"><property name="text"><string>名称 *</string></property></widget></item>
+     <item row="1" column="1"><widget class="QLineEdit" name="editName"><property name="placeholderText"><string>如 爱范儿</string></property></widget></item>
     </layout>
    </item>
    <item>
     <widget class="QLabel" name="labelHint">
-     <property name="text"><string>提示：校验将尝试联网搜索该博主，真实存在方可抓取到对应文章。未验证仍可保存，但爬取时仅为模拟数据。</string></property>
+     <property name="text"><string>提示：微信号用于爬取，如爱范儿 ifanr。暂不做真实性校验，直接按该号抓取。</string></property>
      <property name="wordWrap"><bool>true</bool></property>
-     <property name="styleSheet"><string notr="true">color:#94A3B8; font-size:10px; background:#F8FAFC; border:1px solid #F1F5F9; border-radius:6px; padding:6px;</string></property>
+     <property name="styleSheet"><string notr="true">color:#94A3B8; font-size:10px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px; padding:8px;</string></property>
     </widget>
    </item>
    <item>

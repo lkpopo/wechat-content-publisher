@@ -106,40 +106,36 @@ void MainWindow::setupUiDetails()
 
 void MainWindow::setupBloggerList()
 {
-    // 从 DB 加载，若空则写入默认
+    // 纯 SQLite，无默认数据，首次为空
     auto bloggers = Database::instance().loadBloggers();
-    if (bloggers.isEmpty()) {
-        QList<Blogger> defaults = {
-            {"wechat_li_yongle", "李永乐老师", "wechat", "https://mp.weixin.qq.com/s/li_yongle", true},
-            {"wechat_banfo", "半佛仙人", "wechat", "", true},
-            {"weibo_leijun", "雷军", "weibo", "https://m.weibo.cn/u/1192515275", true},
-            {"xhs_food_001", "小红书-美食探店", "xiaohongshu", "", true},
-        };
-        for (auto &b : defaults) Database::instance().saveBlogger(b);
-        bloggers = Database::instance().loadBloggers();
-    }
-
     ui->listWidgetBloggers->clear();
-    for (auto &b : bloggers) {
-        QString dot = b.platform=="wechat" ? "🟢" : b.platform=="weibo" ? "🟠" : "🌸";
-        QString verified = b.verified ? "✓" : "○";
-        auto *item = new QListWidgetItem(QString("%1 %2  · %3 %4").arg(dot, b.name, b.platform, verified));
-        item->setData(Qt::UserRole, b.id);
-        item->setData(Qt::UserRole + 1, b.platform);
-        item->setData(Qt::UserRole + 2, b.url);
-        item->setData(Qt::UserRole + 3, b.verified);
-        item->setToolTip(QString("ID: %1\n平台: %2\n链接: %3\n%4").arg(b.id, b.platform, b.url, b.verified?"已验证":"未验证"));
-        // 未验证的置灰
-        if (!b.verified) item->setForeground(QColor("#94A3B8"));
-        ui->listWidgetBloggers->addItem(item);
+    if (bloggers.isEmpty()) {
+        // 空状态提示
+        auto *hint = new QListWidgetItem("— 暂无博主，点击“＋ 添加”添加微信公众号 —");
+        hint->setFlags(hint->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsEnabled);
+        hint->setForeground(QColor("#94A3B8"));
+        hint->setTextAlignment(Qt::AlignCenter);
+        ui->listWidgetBloggers->addItem(hint);
+    } else {
+        for (auto &b : bloggers) {
+            // 仅微信，统一绿色
+            auto *item = new QListWidgetItem(QString("🟢 %1  · %2").arg(b.name, b.id));
+            item->setData(Qt::UserRole, b.id);
+            item->setData(Qt::UserRole + 1, b.platform);
+            item->setData(Qt::UserRole + 2, b.url);
+            item->setData(Qt::UserRole + 3, b.verified);
+            item->setToolTip(QString("微信号: %1\n名称: %2\n链接: %3").arg(b.id, b.name, b.url));
+            ui->listWidgetBloggers->addItem(item);
+        }
+        if (ui->listWidgetBloggers->count() > 0) ui->listWidgetBloggers->setCurrentRow(0);
     }
-    if (ui->listWidgetBloggers->count() > 0) ui->listWidgetBloggers->setCurrentRow(0);
 
+    // 仅微信，隐藏平台筛选或只留微信
     ui->comboPlatform->clear();
-    ui->comboPlatform->addItem("全部平台", "all");
     ui->comboPlatform->addItem("微信公众号", "wechat");
-    ui->comboPlatform->addItem("微博", "weibo");
-    ui->comboPlatform->addItem("小红书", "xiaohongshu");
+    // 隐藏下拉（仅一个选项则禁用）
+    ui->comboPlatform->setEnabled(false);
+    ui->labelPlatform->setText("平台");
 }
 
 void MainWindow::setupConnections()
@@ -305,7 +301,7 @@ void MainWindow::onAddBlogger()
 void MainWindow::onEditBlogger()
 {
     auto *item = ui->listWidgetBloggers->currentItem();
-    if (!item) { QMessageBox::warning(this,"提示","请先选择要编辑的博主"); return; }
+    if (!item || item->data(Qt::UserRole).toString().isEmpty()) { QMessageBox::warning(this,"提示","请先选择要编辑的博主"); return; }
     QString id = item->data(Qt::UserRole).toString();
     Blogger b = Database::instance().loadBlogger(id);
     if (!b.isValid()) { b.id=id; b.name=item->text(); b.platform=item->data(Qt::UserRole+1).toString(); b.url=item->data(Qt::UserRole+2).toString(); }
@@ -324,7 +320,7 @@ void MainWindow::onEditBlogger()
 void MainWindow::onDeleteBlogger()
 {
     auto *item = ui->listWidgetBloggers->currentItem();
-    if (!item) { QMessageBox::warning(this,"提示","请选择要删除的博主"); return; }
+    if (!item || item->data(Qt::UserRole).toString().isEmpty()) { QMessageBox::warning(this,"提示","请选择要删除的博主"); return; }
     QString id = item->data(Qt::UserRole).toString();
     QString name = item->text();
     if (QMessageBox::question(this, "确认删除", QString("确定删除博主 “%1” 吗？\n其关联文章缓存也将被清理。").arg(name)) != QMessageBox::Yes) return;
@@ -338,7 +334,7 @@ void MainWindow::onDeleteBlogger()
 void MainWindow::onBloggerContextMenu(const QPoint &pos)
 {
     auto *item = ui->listWidgetBloggers->itemAt(pos);
-    if (!item) return;
+    if (!item || item->data(Qt::UserRole).toString().isEmpty()) return;
     ui->listWidgetBloggers->setCurrentItem(item);
     QMenu menu(this);
     menu.addAction("✎ 编辑", this, &MainWindow::onEditBlogger);
@@ -351,9 +347,9 @@ void MainWindow::onBloggerSelectionChanged()
 {
     auto *item = ui->listWidgetBloggers->currentItem(); if (!item) return;
     QString id = item->data(Qt::UserRole).toString();
+    if (id.isEmpty()) return; // hint 项
     QString platform = item->data(Qt::UserRole + 1).toString();
-    bool verified = item->data(Qt::UserRole + 3).toBool();
-    log(QString("[筛选] 选中 %1 (%2) %3").arg(id, platform, verified?"✓已验证":"○未验证"));
+    log(QString("[筛选] 选中 %1 (%2)").arg(id, platform));
     auto arts = Database::instance().loadArticles(id, 30);
     if (!arts.isEmpty()) {
         ui->listWidgetArticles->clear();
@@ -437,7 +433,8 @@ void MainWindow::onBtnCrawlClicked()
     connect(m_crawlProcess, &QProcess::readyReadStandardOutput, this, [this]{ onCrawlStdout(QString::fromUtf8(m_crawlProcess->readAllStandardOutput())); });
     connect(m_crawlProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError){ log("[爬取] 进程错误: "+m_crawlProcess->errorString()); setCrawlRunning(false); });
 
-    QStringList args = {script, "--blogger", bloggerId, "--platform", platform, "--start", start.toString("yyyy-MM-dd"), "--end", end.toString("yyyy-MM-dd"), "--output", m_crawlResultPath};
+    // 仅微信，默认尝试真实抓取（sogou），失败自动回退 Mock（crawler 内部已处理）
+    QStringList args = {script, "--blogger", bloggerId, "--platform", platform, "--start", start.toString("yyyy-MM-dd"), "--end", end.toString("yyyy-MM-dd"), "--output", m_crawlResultPath, "--real"};
     m_crawlProcess->setWorkingDirectory(QFileInfo(script).absolutePath());
     m_crawlProcess->start(pythonExecutable(), args);
     if (!m_crawlProcess->waitForStarted(5000)) {
