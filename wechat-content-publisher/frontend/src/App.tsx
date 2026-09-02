@@ -6,6 +6,8 @@ import {
   AIProvider,
   ProviderConfig,
   BatchCrawlResponse,
+  SystemVersionInfo,
+  CheckUpdateResponse,
 } from './api';
 
 function StatusBadge({ status }: { status: string }) {
@@ -825,6 +827,196 @@ function ArticleDetail({
   );
 }
 
+
+function SystemUpdateModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const [versionInfo, setVersionInfo] = useState<SystemVersionInfo | null>(null);
+  const [remoteUrl, setRemoteUrl] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [savingRemote, setSavingRemote] = useState(false);
+  const [updateResult, setUpdateResult] = useState<CheckUpdateResponse | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      loadVersion();
+    }
+  }, [visible]);
+
+  const loadVersion = async () => {
+    setError(null);
+    try {
+      const v = await api.getSystemVersion();
+      setVersionInfo(v);
+      setRemoteUrl(v.remote_url || '');
+    } catch (e: any) {
+      setError('获取版本信息失败: ' + e.message);
+    }
+  };
+
+  const handleSaveRemote = async () => {
+    if (!remoteUrl.trim()) {
+      setError('请输入有效的 Git 远程仓库地址');
+      return;
+    }
+    setSavingRemote(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await api.setRemoteUrl(remoteUrl.trim());
+      setNotice(res.message);
+      loadVersion();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSavingRemote(false);
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    setChecking(true);
+    setError(null);
+    setNotice(null);
+    setUpdateResult(null);
+    try {
+      const res = await api.checkUpdate();
+      setUpdateResult(res);
+      if (!res.configured) {
+        setError(res.message);
+      } else if (res.error) {
+        setError(res.error);
+      } else if (!res.has_update) {
+        setNotice('当前已是最新版本，无需更新！');
+      }
+    } catch (e: any) {
+      setError('检查更新异常: ' + e.message);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handlePullUpdate = async () => {
+    setPulling(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await api.pullUpdate();
+      setNotice(res.message);
+      loadVersion();
+      setUpdateResult(null);
+    } catch (e: any) {
+      setError('拉取更新失败: ' + e.message);
+    } finally {
+      setPulling(false);
+    }
+  };
+
+  if (!visible) return null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">
+            <span className="modal-icon">🔄</span>
+            <h4>系统版本与远程更新</h4>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>×</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="version-info-box">
+            <div className="version-row">
+              <span className="v-label">软件版本:</span>
+              <span className="v-value version-badge">{versionInfo?.version || 'v0.2.0'}</span>
+              <span className="v-label">当前分支:</span>
+              <span className="v-value branch-badge">{versionInfo?.branch || 'master'}</span>
+            </div>
+            <div className="version-row">
+              <span className="v-label">最新提交:</span>
+              <span className="v-value code-hash">{versionInfo?.commit_hash}</span>
+              <span className="v-msg" title={versionInfo?.commit_message}>
+                {versionInfo?.commit_message}
+              </span>
+            </div>
+            <div className="version-row">
+              <span className="v-label">提交时间:</span>
+              <span className="v-value text-muted">{versionInfo?.commit_time}</span>
+            </div>
+          </div>
+
+          <div className="remote-config-box">
+            <label className="sub-label">Git 远程仓库地址 (origin):</label>
+            <div className="remote-input-row">
+              <input
+                type="text"
+                placeholder="例如: https://github.com/your-name/wechat-publisher.git"
+                value={remoteUrl}
+                onChange={(e) => setRemoteUrl(e.target.value)}
+              />
+              <button
+                className="btn btn-default btn-sm"
+                onClick={handleSaveRemote}
+                disabled={savingRemote || !remoteUrl.trim()}
+              >
+                {savingRemote ? '保存中...' : '绑定/更新'}
+              </button>
+            </div>
+            {!versionInfo?.remote_url && (
+              <span className="hint-text warning">提示：尚未绑定远程 Git 仓库，绑定后即可一键拉取最新更新</span>
+            )}
+          </div>
+
+          {notice && <div className="success-message small">{notice}</div>}
+          {error && <div className="error-message small">{error}</div>}
+
+          {updateResult?.has_update && (
+            <div className="new-version-box">
+              <div className="new-version-title">
+                🚀 发现 {updateResult.behind_count} 个新更新！
+              </div>
+              <div className="commit-log-list">
+                {updateResult.recent_commits?.map((c, i) => (
+                  <div key={i} className="commit-log-item">
+                    • {c}
+                  </div>
+                ))}
+              </div>
+              <button
+                className="btn btn-success"
+                onClick={handlePullUpdate}
+                disabled={pulling}
+              >
+                {pulling ? '正在拉取代码更新中...' : '⬇️ 立即拉取更新'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button
+            className="btn btn-primary"
+            onClick={handleCheckUpdate}
+            disabled={checking || pulling}
+          >
+            {checking ? '正在连接远程检查...' : '🔍 检查远程更新'}
+          </button>
+          <button className="btn btn-default" onClick={onClose}>
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage({ onBack }: { onBack: () => void }) {
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [config, setConfig] = useState<ProviderConfig | null>(null);
@@ -1013,6 +1205,7 @@ export default function App() {
   const [page, setPage] = useState<'list' | 'detail' | 'settings'>('list');
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   const refreshList = () => setRefreshKey((k) => k + 1);
 
@@ -1053,6 +1246,9 @@ export default function App() {
 
         <div className="header-right">
           <span className="flow-badge">公众号 → AI改写(≤30字) → 今日头条发布</span>
+          <button className="btn btn-default btn-sm" onClick={() => setShowUpdateModal(true)}>
+            🔄 检查更新
+          </button>
           {page !== 'settings' && (
             <button className="btn btn-default btn-sm" onClick={() => setPage('settings')}>
               ⚙️ 设置
@@ -1075,6 +1271,12 @@ export default function App() {
 
         {page === 'settings' && <SettingsPage onBack={handleBackToList} />}
       </main>
+
+      {/* 系统版本与检查更新弹窗 */}
+      <SystemUpdateModal
+        visible={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+      />
     </div>
   );
 }

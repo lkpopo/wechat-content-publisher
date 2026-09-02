@@ -160,4 +160,45 @@ export const api = {
 
   getModels: (provider: string) =>
     apiFetch<{ models: { id: string; name: string }[] }>(`/config/models/${provider}`),
+
+  getSystemVersion: () =>
+    apiFetch<SystemVersionInfo>('/system/version'),
+
+  setRemoteUrl: (remoteUrl: string) =>
+    apiFetch<{ success: boolean; remote_url: string; message: string }>('/system/set-remote', {
+      method: 'POST',
+      body: JSON.stringify({ remote_url: remoteUrl }),
+    }),
+
+  checkUpdate: () =>
+    apiFetch<CheckUpdateResponse>('/system/check-update', {
+      method: 'POST',
+    }),
+
+  pullUpdate: () =>
+    apiFetch<{ success: boolean; output: string; message: string }>('/system/pull-update', {
+      method: 'POST',
+    }),
 };
+
+export interface SystemVersionInfo {
+  version: string;
+  branch: string;
+  commit_hash: string;
+  commit_message: string;
+  commit_time: string;
+  remote_url: string;
+  git_root: string;
+}
+
+export interface CheckUpdateResponse {
+  configured: boolean;
+  has_update: boolean;
+  behind_count?: number;
+  branch?: string;
+  remote_url?: string;
+  recent_commits?: string[];
+  message: string;
+  error?: string;
+}
+

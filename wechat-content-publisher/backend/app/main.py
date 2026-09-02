@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.logging_config import setup_logging
 from app.config import settings
 from app.database import init_db
-from app.api import articles, drafts, images, publish, config
+from app.api import articles, drafts, images, publish, config, system
 
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
@@ -36,6 +36,7 @@ app.include_router(drafts.router, prefix=settings.api_v1_prefix)
 app.include_router(images.router, prefix=settings.api_v1_prefix)
 app.include_router(publish.router, prefix=settings.api_v1_prefix)
 app.include_router(config.router, prefix=settings.api_v1_prefix)
+app.include_router(system.router, prefix=settings.api_v1_prefix)
 
 
 @app.on_event("startup")
