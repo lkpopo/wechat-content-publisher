@@ -299,6 +299,68 @@ function ArticleList({
   );
 }
 
+
+function AIProgressBar({
+  visible,
+  progress,
+  stepText,
+  elapsed,
+  isFinished,
+  error,
+}: {
+  visible: boolean;
+  progress: number;
+  stepText: string;
+  elapsed: number;
+  isFinished?: boolean;
+  error?: string | null;
+}) {
+  if (!visible) return null;
+
+  return (
+    <div className={`ai-status-banner card ${isFinished ? 'finished' : error ? 'failed' : 'active'}`}>
+      <div className="ai-status-top">
+        <div className="ai-status-info">
+          <span className="ai-status-icon">
+            {isFinished ? '✅' : error ? '❌' : '🤖'}
+          </span>
+          <div className="ai-status-text-wrap">
+            <span className="ai-status-title">
+              {isFinished ? 'AI 改写已就绪' : error ? 'AI 改写未完成' : 'AI 智能改写进行中...'}
+            </span>
+            <span className="ai-status-step">{stepText}</span>
+          </div>
+        </div>
+        {!isFinished && !error && (
+          <div className="ai-status-timer">
+            <span className="timer-spinner"></span>
+            <span>已耗时: <strong>{elapsed}</strong> 秒 (大模型处理约需10~25秒)</span>
+          </div>
+        )}
+      </div>
+
+      <div className="ai-progress-track">
+        <div
+          className={`ai-progress-bar ${isFinished ? 'finished' : error ? 'failed' : ''}`}
+          style={{ width: `${Math.min(100, Math.max(5, progress))}%` }}
+        >
+          <div className="ai-progress-glow"></div>
+        </div>
+      </div>
+
+      <div className="ai-status-steps-row">
+        <span className={`step-dot ${progress >= 15 ? 'done' : ''}`}>① 读取原文素材</span>
+        <span className="step-arrow">→</span>
+        <span className={`step-dot ${progress >= 45 ? 'done' : ''}`}>② 结构脉络重组</span>
+        <span className="step-arrow">→</span>
+        <span className={`step-dot ${progress >= 75 ? 'done' : ''}`}>③ ≤30字标题精炼</span>
+        <span className="step-arrow">→</span>
+        <span className={`step-dot ${progress >= 95 ? 'done' : ''}`}>④ 头条图文块生成</span>
+      </div>
+    </div>
+  );
+}
+
 function ArticleDetail({
   articleId,
   onBack,
@@ -317,6 +379,11 @@ function ArticleDetail({
   const [content, setContent] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<'edit' | 'preview'>('edit');
+  const [isAiEditing, setIsAiEditing] = useState(false);
+  const [aiProgress, setAiProgress] = useState(0);
+  const [aiStepText, setAiStepText] = useState('');
+  const [aiElapsedSeconds, setAiElapsedSeconds] = useState(0);
+  const [aiFinished, setAiFinished] = useState(false);
 
   const loadArticle = useCallback(async () => {
     setLoading(true);
@@ -365,19 +432,60 @@ function ArticleDetail({
 
     setError(null);
     setSuccessMsg(null);
+    setIsAiEditing(true);
+    setAiFinished(false);
+    setAiProgress(8);
+    setAiStepText('正在连接大模型并读取原文素材...');
+    setAiElapsedSeconds(0);
+
+    // 启动秒数递增与动态进度模拟
+    let seconds = 0;
+    const timer = setInterval(() => {
+      seconds += 1;
+      setAiElapsedSeconds(seconds);
+      if (seconds <= 3) {
+        setAiProgress(15 + seconds * 4);
+        setAiStepText('📥 读取公众号原文素材与配图位置...');
+      } else if (seconds <= 9) {
+        setAiProgress(28 + (seconds - 3) * 6);
+        setAiStepText('🧠 大模型深度分析脉络，重组文章结构...');
+      } else if (seconds <= 16) {
+        setAiProgress(65 + (seconds - 9) * 3);
+        setAiStepText('✍️ 优化表达，提炼 ≤30 字符的高吸引力标题...');
+      } else {
+        setAiProgress(Math.min(94, 86 + (seconds - 16)));
+        setAiStepText('🎨 格式化今日头条专用图文排版块...');
+      }
+    }, 1000);
+
     try {
       const updated = await api.aiEdit(article.id);
+      clearInterval(timer);
       setArticle(updated);
       setTitle(updated.current_title || '');
       setContent(updated.current_content || '');
       setHasUnsavedChanges(false);
+
       if (updated.ai_edit_status === 'failed') {
+        setIsAiEditing(false);
         setError(updated.ai_edit_error || 'AI 编辑失败');
       } else {
-        setSuccessMsg('AI 改写完成！标题已严格限制在 30 字符内');
+        setAiProgress(100);
+        setAiFinished(true);
+        const titleChars = updated.current_title ? updated.current_title.length : 0;
+        setAiStepText(`🎉 AI 智能改写完成！新标题共 ${titleChars} 字（≤30字规范），正文排版已就绪`);
+        setSuccessMsg(`AI 改写完成！标题已严格限制在 30 字符内（当前 ${titleChars} 字）`);
+
+        // 4秒后自动收起完成状态栏
+        setTimeout(() => {
+          setIsAiEditing(false);
+          setAiFinished(false);
+        }, 4000);
       }
     } catch (e: any) {
-      setError(e.message);
+      clearInterval(timer);
+      setIsAiEditing(false);
+      setError('AI 改写发生异常: ' + e.message);
     }
   };
 
@@ -453,7 +561,7 @@ function ArticleDetail({
   if (loading) return <div className="loading">加载文章详情中...</div>;
   if (!article) return <div className="error-message">文章不存在</div>;
 
-  const isAIProcessing = article.ai_edit_status === 'processing';
+  const isAIProcessing = isAiEditing || article.ai_edit_status === 'processing';
   const getImageUrl = (imageId: string): string | null => {
     const idx = parseInt(imageId.replace('image_', ''));
     const img = article?.images.find((i) => i.image_index === idx);
@@ -489,10 +597,10 @@ function ArticleDetail({
     return (
       <div className="toutiao-mock-view">
         <h1 className="toutiao-title">{title || '未命名标题'}</h1>
-        <div className="toutiao-byline">
+        {/* <div className="toutiao-byline">
           <span className="toutiao-author">{article.source_account || '今日头条创作者'}</span>
           <span className="toutiao-time">刚刚 · 原创</span>
-        </div>
+        </div> */}
         <div className="toutiao-body">
           {lines.map((line, i) => {
             const trimmed = line.trim();
@@ -556,6 +664,16 @@ function ArticleDetail({
 
       {error && <div className="error-message">{error}</div>}
       {successMsg && <div className="success-message">{successMsg}</div>}
+
+      {/* AI 智能改写高科技动态进度状态栏 */}
+      <AIProgressBar
+        visible={isAiEditing}
+        progress={aiProgress}
+        stepText={aiStepText}
+        elapsed={aiElapsedSeconds}
+        isFinished={aiFinished}
+        error={error}
+      />
 
       <div className="detail-layout">
         <div className="detail-section raw-section card">

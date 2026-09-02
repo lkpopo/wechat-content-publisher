@@ -1049,3 +1049,205 @@ body {
   font-size: 13px;
   color: #389e0d;
 }
+
+/* AI 智能改写动态进度状态栏 (AI Progress Status Bar) */
+.ai-status-banner {
+  padding: 18px 24px;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #f0f5ff 0%, #e6f7ff 100%);
+  border: 1px solid #91d5ff;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(24, 144, 255, 0.12);
+  transition: all 0.3s ease;
+  animation: bannerFadeIn 0.3s ease-out;
+}
+
+@keyframes bannerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-status-banner.finished {
+  background: linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%);
+  border-color: #b7eb8f;
+  box-shadow: 0 4px 14px rgba(82, 196, 26, 0.15);
+}
+
+.ai-status-banner.failed {
+  background: linear-gradient(135deg, #fff1f0 0%, #ffccc7 100%);
+  border-color: #ffa39e;
+}
+
+.ai-status-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ai-status-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ai-status-icon {
+  font-size: 24px;
+  line-height: 1;
+  animation: pulseIcon 1.5s infinite;
+}
+
+@keyframes pulseIcon {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.ai-status-banner.finished .ai-status-icon,
+.ai-status-banner.failed .ai-status-icon {
+  animation: none;
+}
+
+.ai-status-text-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-status-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #003a8c;
+}
+
+.ai-status-banner.finished .ai-status-title {
+  color: #135200;
+}
+
+.ai-status-banner.failed .ai-status-title {
+  color: #a8071a;
+}
+
+.ai-status-step {
+  font-size: 13px;
+  color: #1890ff;
+  margin-top: 2px;
+}
+
+.ai-status-banner.finished .ai-status-step {
+  color: #389e0d;
+  font-weight: 600;
+}
+
+.ai-status-banner.failed .ai-status-step {
+  color: #cf1322;
+}
+
+.ai-status-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #096dd9;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid #bae7ff;
+}
+
+.timer-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #bae7ff;
+  border-top-color: #1890ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.ai-progress-track {
+  width: 100%;
+  height: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 14px;
+}
+
+.ai-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #1890ff 0%, #36cfc9 50%, #52c41a 100%);
+  background-size: 200% 100%;
+  border-radius: 6px;
+  transition: width 0.4s ease-out;
+  position: relative;
+  animation: progressGradient 2s linear infinite;
+}
+
+@keyframes progressGradient {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.ai-progress-bar.finished {
+  background: #52c41a;
+  animation: none;
+}
+
+.ai-progress-bar.failed {
+  background: #ff4d4f;
+  animation: none;
+}
+
+.ai-progress-glow {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 30px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+  animation: glowMove 1.2s infinite;
+}
+
+@keyframes glowMove {
+  0% { transform: translateX(-30px); }
+  100% { transform: translateX(30px); }
+}
+
+.ai-status-steps-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #8c8c8c;
+  flex-wrap: wrap;
+}
+
+.step-dot {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.6);
+  transition: all 0.2s;
+}
+
+.step-dot.done {
+  color: #096dd9;
+  font-weight: 600;
+  background: #ffffff;
+  border: 1px solid #91d5ff;
+}
+
+.ai-status-banner.finished .step-dot.done {
+  color: #389e0d;
+  border-color: #b7eb8f;
+}
+
+.step-arrow {
+  color: #bfbfbf;
+}
