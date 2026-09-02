@@ -1,7 +1,0 @@
-<RCC>
-    <qresource prefix="/">
-        <file>styles/light.qss</file>
-        <file>styles/dark.qss</file>
-        <file>icons/chevron-down.svg</file>
-    </qresource>
-</RCC>
