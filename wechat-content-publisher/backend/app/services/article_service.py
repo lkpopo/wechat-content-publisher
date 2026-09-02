@@ -171,6 +171,9 @@ def update_article_content(db: Session, article_id: str, title: str = None, cont
         return None
 
     if title is not None:
+        title = title.strip()
+        if len(title) > 30:
+            title = title[:30].rstrip("，。！？、：；—-_ ")
         article.current_title = title
     if content is not None:
         article.current_content = content

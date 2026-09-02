@@ -41,12 +41,20 @@ async def ai_edit_article(db: Session, article_id: str) -> Article:
         blocks = result.get("blocks", [])
         _validate_blocks(blocks, article_id)
 
-        article.current_title = result.get("title", "")
+        generated_title = (result.get("title") or "").strip()
+        if len(generated_title) > 30:
+            logger.warning(
+                f"[AI] Generated title exceeded 30 characters ({len(generated_title)} chars): '{generated_title}', safely truncating..."
+            )
+            # Safe truncation: take first 30 chars and strip trailing punctuation/whitespace
+            generated_title = generated_title[:30].rstrip("，。！？、：；—-_ ")
+
+        article.current_title = generated_title
         article.current_content = json_dumps_blocks(blocks)
         article.ai_edit_status = "completed"
         article.ai_edit_finished_at = _now()
 
-        logger.info(f"[AI] Completed: title={article.current_title[:30] if article.current_title else '(none)'}, blocks={len(blocks)}")
+        logger.info(f"[AI] Completed: title='{article.current_title}' (len={len(article.current_title)}), blocks={len(blocks)}")
 
     except Exception as e:
         logger.error(f"[AI] Failed: {e}", exc_info=True)
@@ -93,12 +101,16 @@ def save_article_content(db: Session, article_id: str, title: str, content: str)
     if not article:
         raise ValueError(f"Article not found: {article_id}")
 
+    if title and len(title) > 30:
+        logger.warning(f"[Save] Title exceeded 30 chars ({len(title)} chars), trimming to 30 chars: '{title}'")
+        title = title[:30].rstrip("，。！？、：；—-_ ")
+
     article.current_title = title
     article.current_content = content
     article.updated_at = _now()
     db.commit()
     db.refresh(article)
-    logger.info(f"[Save] Article {article_id} saved")
+    logger.info(f"[Save] Article {article_id} saved, title='{title}'")
     return article
 
 

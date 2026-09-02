@@ -81,3 +81,23 @@ class AIEditRequest(BaseModel):
 class PublishResponse(BaseModel):
     success: bool
     message: str
+
+
+class BatchCrawlRequest(BaseModel):
+    urls: List[str]
+
+
+class BatchCrawlItemResult(BaseModel):
+    url: str
+    status: str
+    article_id: Optional[str] = None
+    title: Optional[str] = None
+    error: Optional[str] = None
+
+
+class BatchCrawlResponse(BaseModel):
+    total: int
+    success_count: int
+    failed_count: int
+    results: List[BatchCrawlItemResult]
+

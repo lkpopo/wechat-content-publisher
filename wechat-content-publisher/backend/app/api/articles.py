@@ -3,7 +3,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
-from app.schemas import ArticleOut, ArticleCreate, ArticleListOut, ArticleUpdate
+import re
+from app.schemas import (
+    ArticleOut,
+    ArticleCreate,
+    ArticleListOut,
+    ArticleUpdate,
+    BatchCrawlRequest,
+    BatchCrawlResponse,
+    BatchCrawlItemResult,
+)
 from app.services import article_service
 
 logger = logging.getLogger(__name__)
@@ -18,6 +27,80 @@ async def fetch_article(request: ArticleCreate, db: Session = Depends(get_db)):
         return article
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/crawl/batch", response_model=BatchCrawlResponse)
+async def batch_crawl_articles(request: BatchCrawlRequest, db: Session = Depends(get_db)):
+    """Batch crawl multiple URLs, cleaning empty lines, spaces, duplicates, and handling errors per URL."""
+    cleaned_urls = []
+    seen = set()
+    for raw_url in request.urls:
+        u = raw_url.strip()
+        if not u:
+            continue
+        if u not in seen:
+            seen.add(u)
+            cleaned_urls.append(u)
+
+    results: List[BatchCrawlItemResult] = []
+    success_count = 0
+    failed_count = 0
+
+    url_regex = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
+
+    for url in cleaned_urls:
+        if not url_regex.match(url):
+            results.append(
+                BatchCrawlItemResult(
+                    url=url,
+                    status="failed",
+                    error="URL 格式不合法，必须以 http:// 或 https:// 开头",
+                )
+            )
+            failed_count += 1
+            continue
+
+        try:
+            article = article_service.create_article_from_url(db, url)
+            article = await article_service.fetch_and_parse(db, article.id)
+            if article.fetch_status == "completed":
+                success_count += 1
+                results.append(
+                    BatchCrawlItemResult(
+                        url=url,
+                        status="success",
+                        article_id=article.id,
+                        title=article.current_title or article.source_title or "抓取成功",
+                    )
+                )
+            else:
+                failed_count += 1
+                results.append(
+                    BatchCrawlItemResult(
+                        url=url,
+                        status="failed",
+                        article_id=article.id,
+                        error="文章解析失败，可能已被删除或包含非支持的格式",
+                    )
+                )
+        except Exception as e:
+            failed_count += 1
+            logger.error(f"Failed to crawl URL in batch: {url}, error: {e}")
+            results.append(
+                BatchCrawlItemResult(
+                    url=url,
+                    status="failed",
+                    error=str(e),
+                )
+            )
+
+    return BatchCrawlResponse(
+        total=len(cleaned_urls),
+        success_count=success_count,
+        failed_count=failed_count,
+        results=results,
+    )
+
 
 
 @router.get("", response_model=ArticleListOut)

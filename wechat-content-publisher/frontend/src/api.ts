@@ -65,6 +65,21 @@ export interface ArticleListResponse {
   items: Article[];
 }
 
+export interface BatchCrawlItemResult {
+  url: string;
+  status: 'success' | 'failed';
+  article_id?: string;
+  title?: string;
+  error?: string;
+}
+
+export interface BatchCrawlResponse {
+  total: number;
+  success_count: number;
+  failed_count: number;
+  results: BatchCrawlItemResult[];
+}
+
 const API_BASE = '/api/v1';
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -109,6 +124,17 @@ export const api = {
 
   publish: (articleId: string) =>
     apiFetch<{ success: boolean; message: string }>(`/publish/${articleId}`, { method: 'POST' }),
+
+  clearPublishHistory: (articleId: string) =>
+    apiFetch<{ success: boolean; deleted_count: number; message: string }>(`/publish/${articleId}/history`, {
+      method: 'DELETE',
+    }),
+
+  batchCrawlArticles: (urls: string[]) =>
+    apiFetch<BatchCrawlResponse>('/articles/crawl/batch', {
+      method: 'POST',
+      body: JSON.stringify({ urls }),
+    }),
 
   getProviders: () => apiFetch<{ providers: AIProvider[] }>("/config/providers"),
 
