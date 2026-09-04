@@ -1,5 +1,7 @@
 import asyncio
 import aiofiles
+import logging
+import shutil
 import uuid
 from typing import Optional, List
 from sqlalchemy.orm import Session
@@ -9,6 +11,8 @@ from app.clients.wechat.image_downloader import get_ext_from_url
 from app.config import settings
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -160,6 +164,20 @@ def delete_article(db: Session, article_id: str) -> bool:
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         return False
+
+    # 1. 同步物理删除本地磁盘目录及其所有图片与静态文件
+    art_dir = _article_dir(article_id)
+    if art_dir.exists() and art_dir.is_dir():
+        try:
+            shutil.rmtree(art_dir, ignore_errors=True)
+            logger.info(f"[Article] Successfully deleted article directory from disk: {art_dir}")
+        except Exception as e:
+            logger.warning(f"[Article] Failed to remove article directory {art_dir}: {e}")
+
+    # 2. 级联删除关联的图片和发布记录
+    db.query(ArticleImage).filter(ArticleImage.article_id == article_id).delete()
+    db.query(PublishRecord).filter(PublishRecord.article_id == article_id).delete()
+
     db.delete(article)
     db.commit()
     return True

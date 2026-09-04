@@ -872,7 +872,9 @@ function SystemUpdateModal({
     try {
       const res = await api.setRemoteUrl(remoteUrl.trim());
       setNotice(res.message);
-      loadVersion();
+      await loadVersion();
+      // 绑定成功后自动检查一次更新
+      handleCheckUpdate();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -909,7 +911,7 @@ function SystemUpdateModal({
     try {
       const res = await api.pullUpdate();
       setNotice(res.message);
-      loadVersion();
+      await loadVersion();
       setUpdateResult(null);
     } catch (e: any) {
       setError('拉取更新失败: ' + e.message);
@@ -935,9 +937,9 @@ function SystemUpdateModal({
           <div className="version-info-box">
             <div className="version-row">
               <span className="v-label">软件版本:</span>
-              <span className="v-value version-badge">{versionInfo?.version || 'v0.2.0'}</span>
+              <span className="v-value version-badge">{versionInfo?.version || 'v0.2.1'}</span>
               <span className="v-label">当前分支:</span>
-              <span className="v-value branch-badge">{versionInfo?.branch || 'master'}</span>
+              <span className="v-value branch-badge">{versionInfo?.branch || 'main'}</span>
             </div>
             <div className="version-row">
               <span className="v-label">最新提交:</span>
@@ -957,7 +959,7 @@ function SystemUpdateModal({
             <div className="remote-input-row">
               <input
                 type="text"
-                placeholder="例如: https://github.com/your-name/wechat-publisher.git"
+                placeholder="例如: https://github.com/lkpopo/wechat-content-publisher.git"
                 value={remoteUrl}
                 onChange={(e) => setRemoteUrl(e.target.value)}
               />
@@ -1007,6 +1009,13 @@ function SystemUpdateModal({
             disabled={checking || pulling}
           >
             {checking ? '正在连接远程检查...' : '🔍 检查远程更新'}
+          </button>
+          <button
+            className="btn btn-default"
+            onClick={handlePullUpdate}
+            disabled={checking || pulling || !versionInfo?.remote_url}
+          >
+            {pulling ? '正在拉取中...' : '⬇️ 拉取更新'}
           </button>
           <button className="btn btn-default" onClick={onClose}>
             关闭
