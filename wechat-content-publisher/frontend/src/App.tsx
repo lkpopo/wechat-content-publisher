@@ -1174,27 +1174,35 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
         </div>
 
         <div className="settings-section">
-          <label>选用模型</label>
+          <div className="label-row" style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={{ margin: 0, fontWeight: 600 }}>
+              选用模型 ({models.length} 个可用模型)
+            </label>
+            <button
+              className="btn btn-default btn-sm"
+              onClick={handleFetchModels}
+              disabled={loading}
+              title="从官方接口实时获取最新模型列表"
+            >
+              🔄 从官网同步模型列表
+            </button>
+          </div>
           <div className="settings-row">
             <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               disabled={loading}
+              style={{ flex: 1 }}
             >
               {models.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name}
+                  {m.name} {m.name !== m.id ? `(${m.id})` : ''}
                 </option>
               ))}
             </select>
             <button className="btn btn-primary" onClick={handleSaveModel} disabled={loading}>
-              保存
+              保存选用
             </button>
-            {config?.has_models_api && (
-              <button className="btn btn-default" onClick={handleFetchModels} disabled={loading}>
-                刷新模型列表
-              </button>
-            )}
           </div>
         </div>
 
