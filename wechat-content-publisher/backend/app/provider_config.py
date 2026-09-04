@@ -26,7 +26,7 @@ PROVIDERS = {
             {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash"},
             {"id": "qwen3.8-flash", "name": "Qwen 3.8 Flash"},
         ],
-        "has_models_api": False,
+        "has_models_api": True,
         "api_key_env": "opencode_api_key",
         "model_key": "opencode_model",
         "base_url_key": "opencode_base_url",
@@ -80,16 +80,32 @@ class ConfigManager:
     def get_provider(self) -> str:
         return self._config.get("ai_provider", "opencode")
 
+    def get_models(self, provider: str) -> list:
+        if provider in PROVIDERS:
+            cached = self._config.get(f"{provider}_cached_models")
+            if cached and isinstance(cached, list) and len(cached) > 0:
+                return cached
+            return PROVIDERS[provider]["models"]
+        return []
+
+    def set_cached_models(self, provider: str, models: list):
+        if provider in PROVIDERS and models:
+            self._config[f"{provider}_cached_models"] = models
+            PROVIDERS[provider]["models"] = models
+            self._save()
+
     def get_provider_config(self) -> dict:
         provider = self.get_provider()
         p = PROVIDERS.get(provider, PROVIDERS["opencode"])
+        current_models = self.get_models(provider)
+        fallback_model = current_models[0]["id"] if current_models else ""
         return {
             "provider": provider,
             "name": p["name"],
             "base_url": self._config.get(p["base_url_key"], p["base_url"]),
-            "model": self._config.get(p["model_key"], p["models"][0]["id"]),
+            "model": self._config.get(p["model_key"], fallback_model),
             "api_key": self._config.get(p["api_key_env"], ""),
-            "models": p["models"],
+            "models": current_models,
             "has_models_api": p["has_models_api"],
             "endpoint": p["endpoint"],
         }
@@ -118,10 +134,11 @@ class ConfigManager:
                 "id": pid,
                 "name": p["name"],
                 "has_models_api": p["has_models_api"],
-                "models": p["models"],
+                "models": self.get_models(pid),
                 "api_configured": bool(self._config.get(p["api_key_env"], "")),
             })
         return result
+
 
 
 config_manager = ConfigManager()

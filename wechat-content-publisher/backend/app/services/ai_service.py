@@ -1,7 +1,8 @@
 import logging
-from typing import Dict, Any
+import re
+from typing import Dict, Any, Optional, Set
 from sqlalchemy.orm import Session
-from app.models import Article, PublishRecord
+from app.models import Article, PublishRecord, ArticleImage
 from app.clients.ai import generate_draft
 from app.config import settings
 from datetime import datetime, timezone
@@ -39,7 +40,9 @@ async def ai_edit_article(db: Session, article_id: str) -> Article:
         result = await generate_draft(input_content)
 
         blocks = result.get("blocks", [])
-        _validate_blocks(blocks, article_id)
+        article_images = db.query(ArticleImage).filter(ArticleImage.article_id == article_id).all()
+        valid_image_ids = {f"image_{img.image_index:03d}" for img in article_images}
+        blocks = _sanitize_and_validate_blocks(blocks, valid_image_ids)
 
         generated_title = (result.get("title") or "").strip()
         if len(generated_title) > 30:
@@ -68,21 +71,65 @@ async def ai_edit_article(db: Session, article_id: str) -> Article:
     return article
 
 
-def _validate_blocks(blocks: list, article_id: str):
+def _sanitize_and_validate_blocks(blocks: list, valid_image_ids: Optional[Set[str]] = None) -> list:
+    """Sanitize and validate blocks returned by AI, automatically fixing or skipping malformed image blocks."""
     if not isinstance(blocks, list):
         raise ValueError("AI response 'blocks' must be a list")
 
+    sanitized = []
     for i, block in enumerate(blocks):
         if not isinstance(block, dict):
-            raise ValueError(f"Block {i} must be an object")
-        if "type" not in block:
-            raise ValueError(f"Block {i} missing 'type'")
-        if block["type"] not in ("paragraph", "heading", "image"):
-            raise ValueError(f"Block {i} invalid type: {block['type']}")
-        if block["type"] == "image":
-            image_id = block.get("image_id", "")
-            if not image_id.startswith("image_"):
-                raise ValueError(f"Block {i} invalid image_id: {image_id}")
+            logger.warning(f"[AI] Block {i} is not a dict, skipping: {block}")
+            continue
+
+        b_type = str(block.get("type") or "paragraph").strip().lower()
+        text = str(block.get("text") or "").strip()
+        raw_image_id = str(block.get("image_id") or "").strip()
+
+        # Fix unrecognized type
+        if b_type not in ("paragraph", "heading", "image"):
+            b_type = "image" if raw_image_id else "paragraph"
+
+        if b_type == "image":
+            clean_image_id = ""
+            if raw_image_id and raw_image_id.lower() not in ("none", "null"):
+                candidate = raw_image_id.replace("[", "").replace("]", "").strip()
+                if candidate.startswith("image_"):
+                    clean_image_id = candidate
+                else:
+                    digits = re.findall(r"\d+", candidate)
+                    if digits:
+                        clean_image_id = f"image_{int(digits[0]):03d}"
+
+            if clean_image_id:
+                # If valid_image_ids is provided and not empty, check if image exists
+                if not valid_image_ids or clean_image_id in valid_image_ids:
+                    sanitized.append({
+                        "type": "image",
+                        "image_id": clean_image_id,
+                    })
+                else:
+                    logger.warning(f"[AI] Block {i} image_id '{clean_image_id}' not in article images {valid_image_ids}, skipping image")
+                    if text:
+                        sanitized.append({"type": "paragraph", "text": text})
+            else:
+                # Empty or missing image_id: fix by converting to text if text exists, otherwise skip safely
+                if text:
+                    logger.info(f"[AI] Block {i} has type='image' but missing image_id, converted to paragraph: '{text[:30]}...'")
+                    sanitized.append({"type": "paragraph", "text": text})
+                else:
+                    logger.warning(f"[AI] Block {i} has type='image' but missing image_id and has no text, safely skipped")
+        else:
+            if text:
+                sanitized.append({
+                    "type": b_type,
+                    "text": text,
+                })
+
+    if not sanitized:
+        raise ValueError("AI 返回的有效正文块为空，请重新尝试生成")
+
+    return sanitized
 
 
 def json_dumps_blocks(blocks: list) -> str:

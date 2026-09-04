@@ -46,17 +46,18 @@ def set_model(data: dict):
 
 
 @router.get("/models/{provider}")
-def get_models(provider: str):
+async def get_models(provider: str):
     if provider not in PROVIDERS:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
 
     p = PROVIDERS[provider]
-    api_key = config_manager.get_provider_config()["api_key"]
+    provider_key_name = p.get("api_key_env", "")
+    api_key = config_manager.get(provider_key_name, "")
 
-    if p["has_models_api"] and api_key:
-        import asyncio
+    if p["has_models_api"]:
         from app.clients.ai import fetch_models
-        models = asyncio.run(fetch_models(provider, api_key))
+        models = await fetch_models(provider, api_key)
         return {"models": models}
 
-    return {"models": p["models"]}
+    return {"models": config_manager.get_models(provider)}
+

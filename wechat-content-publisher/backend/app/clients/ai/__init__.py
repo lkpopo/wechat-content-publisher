@@ -63,10 +63,11 @@ SYSTEM_PROMPT = """你是一个专业的中文内容编辑。请对微信公众�
 
 ## 关于图片
 原文中的 [图1]、[图2] 等标记表示图片位置。在输出中：
-- 必须使用 {"type": "image", "image_id": "image_001"} 格式表示图片
-- 不要将 [图1] 作为文本输出
+- 只有在放置原图时才使用 {"type": "image", "image_id": "image_001"} 格式，image_id 必须完整填写对应编号，严禁为空！
 - 图片编号必须与原文对应（图1 → image_001，图2 → image_002）
-- 图片位置可随文章结构调整，但不能丢失
+- 如果是没有对应原图的文字描述或图注，请直接使用 {"type": "paragraph", "text": "..."}，绝不要输出 image_id 为空的 image 块！
+- 不要将 [图1] 作为文本输出
+- 图片位置可随文章结构调整，但尽量保留原图位置
 
 ## 输出格式
 严格按照以下 JSON 格式输出，不要包含任何其他文字：
@@ -225,32 +226,69 @@ def _parse_json_text(text: str) -> Dict[str, Any]:
     return result
 
 
-async def fetch_models(provider: str, api_key: str) -> list:
+MODEL_DISPLAY_NAMES = {
+    "muse-spark-1.3-contributor": "Muse Spark 1.3 (Contributor)",
+    "muse-spark-1.2-contributor": "Muse Spark 1.2 (Contributor)",
+    "deepseek-v4-flash": "DeepSeek V4 Flash",
+    "deepseek-v4-pro": "DeepSeek V4 Pro",
+    "qwen3.8-flash": "Qwen 3.8 Flash",
+    "qwen3.8-max": "Qwen 3.8 Max",
+    "qwen3.7-max": "Qwen 3.7 Max",
+    "qwen3.7-plus": "Qwen 3.7 Plus",
+    "longcat-2.0": "LongCat 2.0",
+    "minimax-m3": "MiniMax M3",
+    "minimax-m2.7": "MiniMax M2.7",
+    "kimi-k3": "Kimi K3",
+    "kimi-k2.7-code": "Kimi K2.7 Code",
+    "glm-5.3-flash": "GLM 5.3 Flash",
+    "glm-5.3": "GLM 5.3",
+    "gpt-5.6-luna": "GPT 5.6 Luna",
+    "grok-4.6": "Grok 4.6",
+}
+
+
+async def fetch_models(provider: str, api_key: str = "") -> list:
     if provider not in PROVIDERS:
         return []
 
     p = PROVIDERS[provider]
 
     if not p["has_models_api"]:
-        return p["models"]
+        return config_manager.get_models(provider)
 
     try:
         base_url = p["base_url"]
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        headers = {}
+        if api_key and api_key.strip():
+            headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+        logger.info(f"[AI] Fetching live models from {provider} API: {base_url}/models ...")
+        async with httpx.AsyncClient(timeout=12.0) as client:
             response = await client.get(
                 f"{base_url}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers=headers,
             )
             response.raise_for_status()
             data = response.json()
 
         models = []
-        for item in data.get("data", []):
-            models.append({
-                "id": item.get("id", ""),
-                "name": item.get("id", ""),
-            })
-        return models if models else p["models"]
+        raw_items = data.get("data", [])
+        for item in raw_items:
+            mid = item.get("id", "")
+            if mid:
+                display_name = MODEL_DISPLAY_NAMES.get(mid, mid)
+                models.append({
+                    "id": mid,
+                    "name": display_name,
+                })
+
+        if models:
+            logger.info(f"[AI] Successfully fetched {len(models)} models from {provider}!")
+            config_manager.set_cached_models(provider, models)
+            return models
+
+        return config_manager.get_models(provider)
     except Exception as e:
-        logger.warning(f"[AI] Failed to fetch models for {provider}: {e}")
-        return p["models"]
+        logger.warning(f"[AI] Failed to fetch live models for {provider}: {e}")
+        return config_manager.get_models(provider)
+

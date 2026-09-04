@@ -10,7 +10,6 @@ echo.
 set BASEDIR=%~dp0
 cd /d "%BASEDIR%"
 
-:: 1. 检查 Python 运行环境
 set PYTHON_EXE=
 if exist "%BASEDIR%backend\.venv\Scripts\python.exe" (
     set "PYTHON_EXE=%BASEDIR%backend\.venv\Scripts\python.exe"
@@ -30,7 +29,6 @@ if "%PYTHON_EXE%"=="" (
     exit /b 1
 )
 
-:: 2. 确保 backend/.env 存在
 if not exist "%BASEDIR%backend\.env" (
     echo [提示] 正在创建默认配置文件 backend\.env ...
     (
@@ -41,14 +39,12 @@ if not exist "%BASEDIR%backend\.env" (
     ) > "%BASEDIR%backend\.env"
 )
 
-:: 3. 启动一体化服务（FastAPI 自动托管内置前端，无需 Node.js）
 echo [1/2] 正在启动后台发布服务 (端口: 8000)...
 start "WeChat-Publisher-Service" /min "%PYTHON_EXE%" -m uvicorn app.main:app --app-dir "%BASEDIR%backend" --host 127.0.0.1 --port 8000
 
 echo [2/2] 正在检测服务就绪并打开浏览器...
 timeout /t 3 /nobreak >nul
 
-:: 4. 唤起默认浏览器访问系统
 start http://127.0.0.1:8000
 
 echo.

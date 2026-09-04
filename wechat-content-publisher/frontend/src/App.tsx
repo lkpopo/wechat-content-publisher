@@ -1049,6 +1049,13 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
       setSelectedModel(res.model);
       setApiKey(res.api_key);
       setModels(res.models);
+      if (res.has_models_api) {
+        api.getModels(res.provider).then((mRes) => {
+          if (mRes.models && mRes.models.length > 0) {
+            setModels(mRes.models);
+          }
+        }).catch(() => {});
+      }
     } catch (e: any) {
       setMessage('加载配置失败: ' + e.message);
     }
@@ -1064,7 +1071,7 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
       setSelectedModel(res.model);
       setApiKey(res.api_key);
       setModels(res.models);
-      if (res.has_models_api && res.api_key) {
+      if (res.has_models_api) {
         const modelRes = await api.getModels(provider);
         setModels(modelRes.models);
       }
@@ -1081,6 +1088,11 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
     try {
       await api.setApiKey(selectedProvider, apiKey);
       setMessage('API Key 已保存成功！');
+      // 重新从官网刷新模型列表
+      try {
+        const modelRes = await api.getModels(selectedProvider);
+        setModels(modelRes.models);
+      } catch {}
     } catch (e: any) {
       setMessage('保存失败: ' + e.message);
     } finally {
