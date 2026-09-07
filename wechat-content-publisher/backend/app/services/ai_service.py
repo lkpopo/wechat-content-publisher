@@ -37,7 +37,7 @@ async def ai_edit_article(db: Session, article_id: str) -> Article:
         input_content = article.current_content or article.content_text or ""
         logger.info(f"[AI] Input length: {len(input_content)} chars")
 
-        result = await generate_draft(input_content)
+        result = await generate_draft(input_content, session_id=f"article-{article_id}")
 
         blocks = result.get("blocks", [])
         article_images = db.query(ArticleImage).filter(ArticleImage.article_id == article_id).all()

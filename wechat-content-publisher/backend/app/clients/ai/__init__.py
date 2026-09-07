@@ -1,7 +1,8 @@
 import httpx
 import json
 import logging
-from typing import Dict, Any
+import uuid
+from typing import Dict, Any, Optional
 from app.config import settings
 from app.provider_config import config_manager, PROVIDERS
 
@@ -82,20 +83,23 @@ SYSTEM_PROMPT = """你是一个专业的中文内容编辑。请对微信公众�
 }"""
 
 
-async def generate_draft(content_text: str, max_retries: int = 3) -> Dict[str, Any]:
+async def generate_draft(content_text: str, session_id: Optional[str] = None, max_retries: int = 3) -> Dict[str, Any]:
     provider_cfg = config_manager.get_provider_config()
 
     if not provider_cfg["api_key"]:
         raise ValueError(f"API key not configured for provider: {provider_cfg['name']}")
 
+    if not session_id:
+        session_id = f"session-{uuid.uuid4().hex[:16]}"
+
     prompt = f"## 原文内容\n{content_text}\n\n请按照系统提示中的要求重新编辑这篇文章。"
-    logger.info(f"[AI] Provider: {provider_cfg['name']}, Model: {provider_cfg['model']}, Prompt length: {len(prompt)}")
+    logger.info(f"[AI] Provider: {provider_cfg['name']}, Model: {provider_cfg['model']}, Session: {session_id}, Prompt length: {len(prompt)}")
 
     last_error = None
     for attempt in range(max_retries):
         try:
             if provider_cfg["provider"] == "opencode":
-                result = await _call_opencode(provider_cfg, prompt)
+                result = await _call_opencode(provider_cfg, prompt, session_id)
             elif provider_cfg["provider"] == "deepseek":
                 result = await _call_deepseek(provider_cfg, prompt)
             else:
@@ -110,7 +114,7 @@ async def generate_draft(content_text: str, max_retries: int = 3) -> Dict[str, A
     raise RuntimeError(f"AI generation failed after {max_retries} retries: {last_error}")
 
 
-async def _call_opencode(cfg: dict, prompt: str) -> Dict[str, Any]:
+async def _call_opencode(cfg: dict, prompt: str, session_id: str) -> Dict[str, Any]:
     request_body = {
         "model": cfg["model"],
         "input": [
@@ -132,16 +136,28 @@ async def _call_opencode(cfg: dict, prompt: str) -> Dict[str, Any]:
         },
     }
 
+    headers = {
+        "Authorization": f"Bearer {cfg['api_key']}",
+        "Content-Type": "application/json",
+        "x-opencode-session": session_id,
+        "User-Agent": "WeChatContentPublisher/1.0 (Windows NT 10.0; Win64; x64)",
+    }
+
     async with httpx.AsyncClient(timeout=180.0) as client:
         response = await client.post(
             f"{cfg['base_url']}/responses",
-            headers={
-                "Authorization": f"Bearer {cfg['api_key']}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             json=request_body,
         )
-        response.raise_for_status()
+        if response.is_error:
+            try:
+                err_data = response.json()
+                err_msg = err_data.get("error", {}).get("message") or response.text
+            except Exception:
+                err_msg = response.text
+            logger.error(f"[OpenCode Error {response.status_code}] {err_msg}")
+            raise RuntimeError(f"OpenCode API error ({response.status_code}): {err_msg}")
+
         data = response.json()
 
     return _parse_opencode_response(data)
@@ -258,7 +274,10 @@ async def fetch_models(provider: str, api_key: str = "") -> list:
 
     try:
         base_url = p["base_url"]
-        headers = {}
+        headers = {
+            "x-opencode-session": f"models-{uuid.uuid4().hex[:12]}",
+            "User-Agent": "WeChatContentPublisher/1.0 (Windows NT 10.0; Win64; x64)",
+        }
         if api_key and api_key.strip():
             headers["Authorization"] = f"Bearer {api_key.strip()}"
 
